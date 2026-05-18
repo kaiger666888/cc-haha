@@ -158,6 +158,7 @@ jobs:
       - name: Build sidecars
         working-directory: desktop
         env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/bun-install-cache
           TAURI_ENV_TARGET_TRIPLE: ${{ matrix.rust_target }}
         run: bun run build:sidecars
 
