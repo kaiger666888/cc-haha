@@ -279,7 +279,9 @@ export const en = {
   'settings.chatgptOfficialLogin.logoutProcessing': 'Signing out...',
   'settings.chatgptOfficialLogin.loggedInPrefix': 'Signed in as',
   'settings.chatgptOfficialLogin.accountUnknown': 'ChatGPT account',
-  'settings.chatgptOfficialLogin.openBrowserFailed': 'Unable to open browser. Copy the authorization URL from server logs and open it manually.',
+  'settings.chatgptOfficialLogin.openBrowserFailed': 'Unable to open browser. Copy the authorization link and open it manually.',
+  'settings.chatgptOfficialLogin.copyAuthorizeUrl': 'Copy authorization link',
+  'settings.chatgptOfficialLogin.copyLinkFailed': 'Unable to copy authorization link.',
   'settings.chatgptOfficialLogin.errorPrefix': 'ChatGPT OAuth error: ',
 
   // Settings > Providers

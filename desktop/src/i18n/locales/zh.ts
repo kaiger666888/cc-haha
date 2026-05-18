@@ -281,7 +281,9 @@ export const zh: Record<TranslationKey, string> = {
   'settings.chatgptOfficialLogin.logoutProcessing': '正在退出...',
   'settings.chatgptOfficialLogin.loggedInPrefix': '已登录',
   'settings.chatgptOfficialLogin.accountUnknown': 'ChatGPT 账号',
-  'settings.chatgptOfficialLogin.openBrowserFailed': '无法打开浏览器。请从服务端日志复制授权链接并手动打开。',
+  'settings.chatgptOfficialLogin.openBrowserFailed': '无法打开浏览器。请复制授权链接并手动打开。',
+  'settings.chatgptOfficialLogin.copyAuthorizeUrl': '复制授权链接',
+  'settings.chatgptOfficialLogin.copyLinkFailed': '无法复制授权链接。',
   'settings.chatgptOfficialLogin.errorPrefix': 'ChatGPT OAuth 错误:',
 
   // Settings > Providers

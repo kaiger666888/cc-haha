@@ -1,13 +1,15 @@
 // desktop/src/components/settings/ChatGPTOfficialLogin.tsx
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { open as shellOpen } from '@tauri-apps/plugin-shell'
-import { LogIn, LogOut } from 'lucide-react'
+import { Copy, LogIn, LogOut } from 'lucide-react'
 import { useHahaOpenAIOAuthStore } from '../../stores/hahaOpenAIOAuthStore'
 import { useTranslation } from '../../i18n'
+import { copyTextToClipboard } from '../chat/clipboard'
 
 export function ChatGPTOfficialLogin() {
   const t = useTranslation()
+  const [manualAuthorizeUrl, setManualAuthorizeUrl] = useState<string | null>(null)
   const {
     status,
     isLoading,
@@ -27,8 +29,10 @@ export function ChatGPTOfficialLogin() {
   const handleLogin = async () => {
     try {
       const { authorizeUrl } = await login()
+      setManualAuthorizeUrl(authorizeUrl)
       try {
         await shellOpen(authorizeUrl)
+        setManualAuthorizeUrl(null)
         startPolling()
       } catch (err) {
         console.error('[ChatGPTOfficialLogin] shellOpen failed:', err)
@@ -41,11 +45,38 @@ export function ChatGPTOfficialLogin() {
     }
   }
 
+  const handleCopyAuthorizeUrl = async () => {
+    if (!manualAuthorizeUrl) return
+    const copied = await copyTextToClipboard(manualAuthorizeUrl)
+    if (copied) {
+      useHahaOpenAIOAuthStore.setState({ error: null })
+      startPolling()
+      return
+    }
+    useHahaOpenAIOAuthStore.setState({
+      error: t('settings.chatgptOfficialLogin.copyLinkFailed'),
+    })
+  }
+
+  const manualAuthorizeButton = manualAuthorizeUrl ? (
+    <button
+      type="button"
+      onClick={handleCopyAuthorizeUrl}
+      className="inline-flex items-center gap-1.5 self-start rounded-md border border-[var(--color-border-separator)] bg-[var(--color-surface)] px-3 py-1.5 text-xs transition-colors hover:bg-[var(--color-surface-hover)]"
+    >
+      <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+      {t('settings.chatgptOfficialLogin.copyAuthorizeUrl')}
+    </button>
+  ) : null
+
   if (status === null) {
     if (error) {
       return (
-        <div data-testid="chatgpt-official-login" className="text-xs text-[var(--color-error)]">
-          {t('settings.chatgptOfficialLogin.errorPrefix')}{error}
+        <div data-testid="chatgpt-official-login" className="flex flex-col gap-2">
+          <div className="text-xs text-[var(--color-error)]">
+            {t('settings.chatgptOfficialLogin.errorPrefix')}{error}
+          </div>
+          {manualAuthorizeButton}
         </div>
       )
     }
@@ -99,6 +130,7 @@ export function ChatGPTOfficialLogin() {
           {t('settings.chatgptOfficialLogin.errorPrefix')}{error}
         </div>
       )}
+      {manualAuthorizeButton}
     </div>
   )
 }
