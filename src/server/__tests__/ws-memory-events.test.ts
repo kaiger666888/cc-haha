@@ -39,6 +39,39 @@ describe('WebSocket memory events', () => {
   })
 })
 
+describe('WebSocket AskUserQuestion events', () => {
+  it('forwards structured AskUserQuestion answers from CLI toolUseResult metadata', () => {
+    expect(translateCliMessage({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'ask-1',
+            content: 'User has answered your questions: "Pick one?"="A". You can now continue with the user\'s answers in mind.',
+          },
+        ],
+      },
+      toolUseResult: {
+        questions: [{ question: 'Pick one?', options: [{ label: 'A' }] }],
+        answers: { 'Pick one?': 'A' },
+      },
+    }, 'session-1')).toEqual([
+      {
+        type: 'tool_result',
+        toolUseId: 'ask-1',
+        content: {
+          questions: [{ question: 'Pick one?', options: [{ label: 'A' }] }],
+          answers: { 'Pick one?': 'A' },
+        },
+        isError: false,
+        parentToolUseId: undefined,
+      },
+    ])
+  })
+})
+
 describe('WebSocket compact events', () => {
   it('forwards CLI compacting status to the desktop client', () => {
     expect(translateCliMessage({

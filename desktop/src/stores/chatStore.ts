@@ -1663,6 +1663,16 @@ function readRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>
 }
 
+function normalizeHistoryToolResultContent(content: unknown, toolUseResult: unknown): unknown {
+  const result = readRecord(toolUseResult)
+  const answers = readRecord(result?.answers)
+  if (!result || !answers || !Array.isArray(result.questions)) return content
+  return {
+    questions: result.questions,
+    answers,
+  }
+}
+
 function parseJsonRecord(value: unknown): Record<string, unknown> | null {
   const record = readRecord(value)
   if (record) return record
@@ -2313,7 +2323,15 @@ export function mapHistoryMessagesToUiMessages(
         }
         else if (block.type === 'image') attachments.push({ type: 'image', name: block.name || 'image', data: block.source?.data, mimeType: block.mimeType || block.media_type })
         else if (block.type === 'file') attachments.push({ type: 'file', name: block.name || 'file' })
-        else if (block.type === 'tool_result') uiMessages.push({ id: nextId(), type: 'tool_result', toolUseId: block.tool_use_id ?? '', content: block.content, isError: !!block.is_error, timestamp, parentToolUseId: msg.parentToolUseId })
+        else if (block.type === 'tool_result') uiMessages.push({
+          id: nextId(),
+          type: 'tool_result',
+          toolUseId: block.tool_use_id ?? '',
+          content: normalizeHistoryToolResultContent(block.content, msg.toolUseResult),
+          isError: !!block.is_error,
+          timestamp,
+          parentToolUseId: msg.parentToolUseId,
+        })
       }
       if (textParts.length > 0 || attachments.length > 0) {
         const parsed = extractLeadingFileReferences(textParts.join('\n'))

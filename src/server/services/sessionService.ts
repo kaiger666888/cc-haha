@@ -78,6 +78,7 @@ export type MessageEntry = {
   id: string
   type: 'user' | 'assistant' | 'system' | 'tool_use' | 'tool_result'
   content: unknown
+  toolUseResult?: unknown
   timestamp: string
   model?: string
   parentUuid?: string
@@ -425,6 +426,7 @@ export class SessionService {
       id: entry.uuid || crypto.randomUUID(),
       type,
       content: msg.content,
+      ...(entry.toolUseResult !== undefined ? { toolUseResult: entry.toolUseResult } : {}),
       timestamp: entry.timestamp || new Date().toISOString(),
       model: msg.model,
       parentUuid: entry.parentUuid ?? undefined,

@@ -251,6 +251,53 @@ describe('MessageList nested tool calls', () => {
     )).toEqual(['answered-tool', 'active-tool'])
   })
 
+  it('keeps only the latest unresolved AskUserQuestion when no pending permission is active', () => {
+    const messages: UIMessage[] = [
+      {
+        id: 'first-ask',
+        type: 'tool_use',
+        toolName: 'AskUserQuestion',
+        toolUseId: 'first-tool',
+        input: {
+          questions: [
+            {
+              question: 'First question?',
+              options: [{ label: 'A' }, { label: 'B' }],
+            },
+          ],
+        },
+        timestamp: 1,
+      },
+      {
+        id: 'second-ask',
+        type: 'tool_use',
+        toolName: 'AskUserQuestion',
+        toolUseId: 'second-tool',
+        input: {
+          questions: [
+            {
+              question: 'Second question?',
+              options: [{ label: 'A' }, { label: 'B' }],
+            },
+          ],
+        },
+        timestamp: 2,
+      },
+    ]
+
+    const { renderItems } = buildRenderModel(messages, null)
+
+    expect(renderItems).toHaveLength(1)
+    expect(renderItems[0]).toMatchObject({
+      kind: 'message',
+      message: {
+        type: 'tool_use',
+        toolName: 'AskUserQuestion',
+        toolUseId: 'second-tool',
+      },
+    })
+  })
+
   it('renders goal events as visible status cards', () => {
     useChatStore.setState({
       sessions: {

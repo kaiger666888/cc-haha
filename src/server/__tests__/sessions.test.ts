@@ -643,6 +643,42 @@ describe('SessionService', () => {
     expect(messages).toHaveLength(2)
   })
 
+  it('preserves structured toolUseResult metadata for AskUserQuestion answers', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    await writeSessionFile('-tmp-project', sessionId, [
+      makeSnapshotEntry(),
+      {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'ask-1',
+              content: 'User has answered your questions: "Pick one?"="A". You can now continue with the user\'s answers in mind.',
+            },
+          ],
+        },
+        toolUseResult: {
+          questions: [{ question: 'Pick one?', options: [{ label: 'A' }] }],
+          answers: { 'Pick one?': 'A' },
+        },
+        uuid: crypto.randomUUID(),
+        timestamp: '2026-01-01T00:00:01.000Z',
+      },
+    ])
+
+    const messages = await service.getSessionMessages(sessionId)
+
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toMatchObject({
+      type: 'tool_result',
+      toolUseResult: {
+        answers: { 'Pick one?': 'A' },
+      },
+    })
+  })
+
   it('should append subagent tool calls under their parent agent tool result', async () => {
     const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
     const projectDir = '-tmp-project'

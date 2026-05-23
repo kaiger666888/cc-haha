@@ -453,6 +453,7 @@ export function buildRenderModel(messages: UIMessage[], activeAskUserQuestionToo
   const childToolCallsByParent = new Map<string, ToolCall[]>()
   const toolUseIds = new Set<string>()
   const lastUnresolvedAskUserQuestionIndexByToolUseId = new Map<string, number>()
+  let lastUnresolvedAskUserQuestionIndex: number | null = null
   let pendingToolCalls: ToolCall[] = []
 
   const flushGroup = () => {
@@ -490,6 +491,7 @@ export function buildRenderModel(messages: UIMessage[], activeAskUserQuestionToo
       !toolResultMap.has(msg.toolUseId)
     ) {
       lastUnresolvedAskUserQuestionIndexByToolUseId.set(msg.toolUseId, index)
+      lastUnresolvedAskUserQuestionIndex = index
     }
   })
 
@@ -524,6 +526,14 @@ export function buildRenderModel(messages: UIMessage[], activeAskUserQuestionToo
           !isResolved &&
           activeAskUserQuestionToolUseId &&
           msg.toolUseId !== activeAskUserQuestionToolUseId
+        ) {
+          continue
+        }
+        if (
+          !isResolved &&
+          !activeAskUserQuestionToolUseId &&
+          lastUnresolvedAskUserQuestionIndex !== null &&
+          messages[lastUnresolvedAskUserQuestionIndex] !== msg
         ) {
           continue
         }

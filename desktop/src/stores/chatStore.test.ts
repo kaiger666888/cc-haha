@@ -223,6 +223,63 @@ describe('chatStore history mapping', () => {
     expect(mapped[3]).toMatchObject({ parentToolUseId: 'agent-1' })
   })
 
+  it('maps AskUserQuestion transcript answers from toolUseResult metadata', () => {
+    const messages: MessageEntry[] = [
+      {
+        id: 'assistant-ask',
+        type: 'assistant',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: [
+          {
+            type: 'tool_use',
+            name: 'AskUserQuestion',
+            id: 'ask-1',
+            input: {
+              questions: [
+                {
+                  question: 'Pick one?',
+                  options: [{ label: 'A' }, { label: 'B' }],
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        id: 'user-answer',
+        type: 'tool_result',
+        timestamp: '2026-04-06T00:00:01.000Z',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'ask-1',
+            content: 'User has answered your questions: "Pick one?"="A". You can now continue with the user\'s answers in mind.',
+          },
+        ],
+        toolUseResult: {
+          questions: [
+            {
+              question: 'Pick one?',
+              options: [{ label: 'A' }, { label: 'B' }],
+            },
+          ],
+          answers: { 'Pick one?': 'A' },
+        },
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toHaveLength(2)
+    expect(mapped[1]).toMatchObject({
+      type: 'tool_result',
+      toolUseId: 'ask-1',
+      content: {
+        answers: { 'Pick one?': 'A' },
+      },
+    })
+  })
+
   it('maps compact boundary and summary history without hiding pre-compact messages', () => {
     const messages: MessageEntry[] = [
       {
