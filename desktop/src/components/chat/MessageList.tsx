@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, memo, useState, useCallback, useLayoutEffect, type ReactNode } from 'react'
+import { useRef, useEffect, useMemo, memo, useState, useCallback, useDeferredValue, useLayoutEffect, type ReactNode } from 'react'
 import { ArrowDown, BookMarked, Bot, CheckCircle2, ChevronDown, ChevronRight, CircleStop, FileStack, LoaderCircle, MessageCircle, Settings, Target, XCircle } from 'lucide-react'
 import { ApiError } from '../../api/client'
 import { sessionsApi, type SessionTurnCheckpoint } from '../../api/sessions'
@@ -24,6 +24,11 @@ import { CurrentTurnChangeCard } from './CurrentTurnChangeCard'
 import type { AgentTaskNotification, UIMessage } from '../../types/chat'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 import { clearWindowSelection, getSelectionPopoverPosition, useSelectionPopoverDismiss } from '../../hooks/useSelectionPopoverDismiss'
+import {
+  getHeightsForSession,
+  getMetricsForSession,
+  type VirtualRenderItemMetric,
+} from './virtualHeightCache'
 
 type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
 type ToolResult = Extract<UIMessage, { type: 'tool_result' }>
@@ -831,12 +836,6 @@ type VirtualTranscriptWindow = {
   items: VirtualTranscriptItem[]
 }
 
-type VirtualRenderItemMetric = {
-  signature: string
-  contentWeight: number
-  estimatedHeight: number
-}
-
 const sessionScrollSnapshots = new Map<string, SessionScrollSnapshot>()
 
 function isNearScrollBottom(element: HTMLElement) {
@@ -1233,8 +1232,12 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     (chatState === 'thinking' && Boolean(activeThinkingId))
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const scrollContentRef = useRef<HTMLDivElement>(null)
-  const virtualItemHeightsRef = useRef(new Map<string, number>())
-  const virtualItemMetricCacheRef = useRef(new Map<string, VirtualRenderItemMetric>())
+  const virtualItemHeightsRef = useRef<Map<string, number>>(
+    resolvedSessionId ? getHeightsForSession(resolvedSessionId) : new Map<string, number>(),
+  )
+  const virtualItemMetricCacheRef = useRef<Map<string, VirtualRenderItemMetric>>(
+    resolvedSessionId ? getMetricsForSession(resolvedSessionId) : new Map<string, VirtualRenderItemMetric>(),
+  )
   const pendingMeasuredHeightsRef = useRef(false)
   const measureFlushFrameRef = useRef<number | null>(null)
   const lastAutoScrollAtRef = useRef(0)
@@ -1393,8 +1396,12 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
       const snapshot = resolvedSessionId ? sessionScrollSnapshots.get(resolvedSessionId) : undefined
       shouldAutoScrollRef.current = snapshot?.wasAtBottom ?? true
       lastSessionIdRef.current = resolvedSessionId
-      virtualItemHeightsRef.current.clear()
-      virtualItemMetricCacheRef.current.clear()
+      virtualItemHeightsRef.current = resolvedSessionId
+        ? getHeightsForSession(resolvedSessionId)
+        : new Map<string, number>()
+      virtualItemMetricCacheRef.current = resolvedSessionId
+        ? getMetricsForSession(resolvedSessionId)
+        : new Map<string, VirtualRenderItemMetric>()
       pendingMeasuredHeightsRef.current = false
       if (measureFlushFrameRef.current !== null) {
         cancelAnimationFrame(measureFlushFrameRef.current)
@@ -1412,7 +1419,29 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
           viewportHeight: container.clientHeight || current.viewportHeight || VIRTUAL_DEFAULT_VIEWPORT_HEIGHT,
         }))
         setShowJumpToLatest(true)
+      } else if (container) {
+        // Switch to a session we were at the bottom of (or first visit): write
+        // the bottom sentinel without going through scrollToBottom's read path,
+        // so we never force a layout flush during the switch's commit.
+        ignoreProgrammaticScrollUntilRef.current = performance.now() + 250
+        ignoreProgrammaticScrollTopRef.current = null
+        lastAutoScrollAtRef.current = performance.now()
+        shouldAutoScrollRef.current = true
+        setScrollToBottomWithoutLayoutRead(container, 'auto')
+        setVirtualViewport((current) => ({
+          scrollTop: SCROLL_BOTTOM_SENTINEL,
+          viewportHeight: container.clientHeight || current.viewportHeight || VIRTUAL_DEFAULT_VIEWPORT_HEIGHT,
+        }))
+        setShowJumpToLatest(false)
+        if (resolvedSessionId) {
+          sessionScrollSnapshots.set(resolvedSessionId, {
+            scrollTop: container.scrollTop,
+            wasAtBottom: true,
+          })
+        }
       } else {
+        // No container yet (initial mount before ref settles): fall back to the
+        // existing scrollToBottom path which is safe pre-mount.
         scrollToBottom('auto')
       }
     }
@@ -1465,11 +1494,21 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     () => buildRenderModel(messages, activeAskUserQuestionToolUseId),
     [activeAskUserQuestionToolUseId, messages],
   )
+  // Defer the per-message branchable / completed-turn computations so the first
+  // commit on tab switch can render the virtualization window without doing two
+  // additional O(N) walks synchronously. They re-run in a low-priority render
+  // once the initial frame is painted.
+  const deferredMessages = useDeferredValue(messages)
   const branchableMessageTargets = useMemo(
-    () => branchActionsDisabled ? new Map<string, BranchableMessageTarget>() : getBranchableMessageTargets(messages),
-    [branchActionsDisabled, messages],
+    () => branchActionsDisabled
+      ? new Map<string, BranchableMessageTarget>()
+      : getBranchableMessageTargets(deferredMessages),
+    [branchActionsDisabled, deferredMessages],
   )
-  const completedTurnTargets = useMemo(() => getCompletedTurnTargets(messages), [messages])
+  const completedTurnTargets = useMemo(
+    () => getCompletedTurnTargets(deferredMessages),
+    [deferredMessages],
+  )
   const latestCompletedTurnId =
     completedTurnTargets.length > 0
       ? completedTurnTargets[completedTurnTargets.length - 1]?.messageId ?? null
