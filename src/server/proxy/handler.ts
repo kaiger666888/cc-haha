@@ -24,6 +24,50 @@ import { getManualNetworkProxyUrl, loadNetworkSettings } from '../services/netwo
 
 const providerService = new ProviderService()
 
+type ProxyFetchOptions = ReturnType<typeof getProxyFetchOptions>
+type UpstreamRequestInit = RequestInit & ProxyFetchOptions
+
+function createTimeoutController(timeoutMs: number): {
+  signal: AbortSignal
+  clear: () => void
+} {
+  const controller = new AbortController()
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException('The operation timed out.', 'TimeoutError'))
+  }, timeoutMs)
+
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timer),
+  }
+}
+
+async function fetchUpstreamWithTimeout(
+  url: string,
+  init: Omit<UpstreamRequestInit, 'signal'>,
+  timeoutMs: number,
+  isStream: boolean,
+): Promise<Response> {
+  if (!isStream) {
+    return fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  }
+
+  // For streaming requests, this timeout should only cover the connection and
+  // response headers. Keeping the signal alive aborts long generations mid-body.
+  const timeout = createTimeoutController(timeoutMs)
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: timeout.signal,
+    })
+  } finally {
+    timeout.clear()
+  }
+}
+
 export async function handleProxyRequest(req: Request, url: URL): Promise<Response> {
   const providerMatch = url.pathname.match(/^\/proxy\/providers\/([^/]+)\/v1\/messages$/)
   const providerId = providerMatch ? decodeURIComponent(providerMatch[1]!) : undefined
@@ -127,16 +171,15 @@ async function handleOpenaiChat(
   const url = `${baseUrl}/v1/chat/completions`
   const proxyOptions = getProxyFetchOptions({ proxyUrl })
 
-  const upstream = await fetch(url, {
+  const upstream = await fetchUpstreamWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
     body: signClaudeCodeCCHInTransformedString(JSON.stringify(transformed)),
-    signal: AbortSignal.timeout(aiRequestTimeoutMs),
     ...proxyOptions,
-  })
+  }, aiRequestTimeoutMs, isStream)
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => '')
@@ -195,16 +238,15 @@ async function handleOpenaiResponses(
   const url = `${baseUrl}/v1/responses`
   const proxyOptions = getProxyFetchOptions({ proxyUrl })
 
-  const upstream = await fetch(url, {
+  const upstream = await fetchUpstreamWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
     body: signClaudeCodeCCHInTransformedString(JSON.stringify(transformed)),
-    signal: AbortSignal.timeout(aiRequestTimeoutMs),
     ...proxyOptions,
-  })
+  }, aiRequestTimeoutMs, isStream)
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => '')
