@@ -19,6 +19,9 @@ export function openWithContextForWorkspaceFile(
 }
 
 function resolveAbsolute(workDir: string | undefined, p: string): string {
+  // Tilde paths are home-relative, not workspace-relative — pass them through
+  // for the backend (which knows the home dir and platform) to expand.
+  if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) return p
   if (!workDir || p.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(p)) return p
   return `${workDir.replace(/[\\/]+$/, '')}/${p.replace(/^[/\\]+/, '')}`
 }

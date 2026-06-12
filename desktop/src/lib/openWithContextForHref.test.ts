@@ -50,6 +50,25 @@ describe('openWithContextForHref', () => {
     const result = openWithContextForHref('src/index.ts', { sessionId: SESSION, serverBaseUrl: BASE, workDir: '/proj/' })
     expect(result).toEqual({ kind: 'file', absolutePath: '/proj/src/index.ts', relPath: 'src/index.ts', previewable: true })
   })
+
+  it('tilde html path → absolutePath passed through, not joined onto workDir', () => {
+    const result = openWithContextForHref('~/reports/a.html', { sessionId: SESSION, serverBaseUrl: BASE, workDir: '/w' })
+    expect(result).toEqual({
+      kind: 'file',
+      absolutePath: '~/reports/a.html',
+      inAppBrowserUrl: previewFsUrl(BASE, SESSION, '~/reports/a.html'),
+    })
+  })
+
+  it('Windows backslash tilde html path → absolutePath passed through', () => {
+    const result = openWithContextForHref('~\\reports\\a.html', { sessionId: SESSION, serverBaseUrl: BASE, workDir: 'C:/w' })
+    expect(result).toMatchObject({ kind: 'file', absolutePath: '~\\reports\\a.html' })
+  })
+
+  it('tilde markdown path → absolutePath passed through in file-preview context', () => {
+    const result = openWithContextForHref('~/notes/a.md', { sessionId: SESSION, serverBaseUrl: BASE, workDir: '/w' })
+    expect(result).toEqual({ kind: 'file', absolutePath: '~/notes/a.md', relPath: '~/notes/a.md', previewable: true })
+  })
 })
 
 describe('openWithContextForWorkspaceFile', () => {
