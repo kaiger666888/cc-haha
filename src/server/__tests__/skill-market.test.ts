@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test'
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import {
   handleSkillMarketApi,
   resetSkillMarketServiceFactoryForTests,
@@ -818,44 +821,80 @@ describe('skill market API', () => {
   })
 
   it('lists through the service with validated query params', async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'skill-market-api-'))
+    const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
     let capturedParams: unknown
-    let hasInstalledProvider = false
-    setSkillMarketServiceFactoryForTests((options) => {
-      hasInstalledProvider = typeof options.installedSkillNames === 'function'
-      return {
-        list: async (params) => {
-          capturedParams = params
-          return {
-            items: [],
-            nextCursor: null,
-            source: 'skillhub',
-            sourceStatus: 'ok',
-          }
-        },
-        listSkills: async (params) => {
-          capturedParams = params
-          return {
-            items: [],
-            nextCursor: null,
-            source: 'skillhub',
-            sourceStatus: 'ok',
-          }
-        },
+    let installedNamesFromProvider: string[] = []
+
+    try {
+      const configDir = path.join(tmpDir, '.claude')
+      const userSkillDir = path.join(configDir, 'skills', 'skill-vetter')
+      await fs.mkdir(userSkillDir, { recursive: true })
+      await fs.writeFile(
+        path.join(userSkillDir, 'SKILL.md'),
+        [
+          '---',
+          'name: Skill Vetter',
+          'description: Reviews skill packages before install.',
+          '---',
+          '',
+          'Review skills before installing them.',
+        ].join('\n'),
+        'utf-8',
+      )
+      process.env.CLAUDE_CONFIG_DIR = configDir
+
+      setSkillMarketServiceFactoryForTests((options) => {
+        return {
+          list: async (params) => {
+            capturedParams = params
+            const installedSkillNames = await (
+              options.installedSkillNames as (() => Set<string> | Promise<Set<string>>) | undefined
+            )?.()
+            installedNamesFromProvider = [...(installedSkillNames ?? new Set<string>())]
+            return {
+              items: [],
+              nextCursor: null,
+              source: 'skillhub',
+              sourceStatus: 'ok',
+            }
+          },
+          listSkills: async (params) => {
+            capturedParams = params
+            const installedSkillNames = await (
+              options.installedSkillNames as (() => Set<string> | Promise<Set<string>>) | undefined
+            )?.()
+            installedNamesFromProvider = [...(installedSkillNames ?? new Set<string>())]
+            return {
+              items: [],
+              nextCursor: null,
+              source: 'skillhub',
+              sourceStatus: 'ok',
+            }
+          },
+        }
+      })
+      const url = new URL('/api/skill-market?source=skillhub&sort=updated&q=vetter&cursor=abc&limit=12', 'http://localhost:3456')
+      const req = new Request(url, { method: 'GET' })
+
+      const res = await handleSkillMarketApi(req, url, ['api', 'skill-market'])
+
+      expect(res.status).toBe(200)
+      expect(installedNamesFromProvider).toContain('skill-vetter')
+      expect(capturedParams).toEqual({
+        source: 'skillhub',
+        sort: 'updated',
+        query: 'vetter',
+        cursor: 'abc',
+        limit: 12,
+      })
+    } finally {
+      if (originalConfigDir === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = originalConfigDir
       }
-    })
-    const url = new URL('/api/skill-market?source=skillhub&sort=updated&q=vetter&cursor=abc&limit=12', 'http://localhost:3456')
-    const req = new Request(url, { method: 'GET' })
-
-    const res = await handleSkillMarketApi(req, url, ['api', 'skill-market'])
-
-    expect(res.status).toBe(200)
-    expect(hasInstalledProvider).toBe(true)
-    expect(capturedParams).toEqual({
-      source: 'skillhub',
-      sort: 'updated',
-      query: 'vetter',
-      cursor: 'abc',
-      limit: 12,
-    })
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
   })
 })
