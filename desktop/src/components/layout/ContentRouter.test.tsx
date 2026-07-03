@@ -26,6 +26,10 @@ vi.mock('../../pages/Settings', () => ({
   Settings: () => <div data-testid="settings-page" />,
 }))
 
+vi.mock('../../pages/SkillCenter', () => ({
+  SkillCenter: () => <div data-testid="skill-center-page" />,
+}))
+
 vi.mock('../../pages/TerminalSettings', () => ({
   TerminalSettings: ({ active, cwd, onNewTerminal, runtimeId, testId }: { active: boolean; cwd?: string; onNewTerminal: () => void; runtimeId?: string; testId: string }) => (
     <div data-active={active ? 'true' : 'false'} data-cwd={cwd ?? ''} data-runtime-id={runtimeId ?? ''} data-testid={testId}>
@@ -55,7 +59,7 @@ vi.mock('../workbench/WorkbenchTab', () => ({
 }))
 
 import { ContentRouter } from './ContentRouter'
-import { useTabStore } from '../../stores/tabStore'
+import { SKILL_CENTER_TAB_ID, useTabStore } from '../../stores/tabStore'
 
 describe('ContentRouter tab surfaces', () => {
   afterEach(() => {
@@ -194,6 +198,23 @@ describe('ContentRouter tab surfaces', () => {
 
     expect(screen.getByTestId('empty-session')).toBeInTheDocument()
     expect(screen.queryByTestId('subagent-run-page')).not.toBeInTheDocument()
+  })
+
+  it('renders the skill center tab without mounting the chat session surface', () => {
+    useTabStore.setState({
+      tabs: [{
+        sessionId: SKILL_CENTER_TAB_ID,
+        title: 'Skills',
+        type: 'skill-center',
+        status: 'idle',
+      }],
+      activeTabId: SKILL_CENTER_TAB_ID,
+    })
+
+    render(<ContentRouter />)
+
+    expect(screen.getByTestId('skill-center-page')).toBeInTheDocument()
+    expect(screen.queryByTestId('active-session')).not.toBeInTheDocument()
   })
 
   it('renders workbench tabs as main content instead of mounting the chat session surface', () => {

@@ -24,6 +24,7 @@ export const zh: Record<TranslationKey, string> = {
   // ─── Sidebar ──────────────────────────────────────
   'sidebar.newSession': '新建会话',
   'sidebar.scheduled': '定时任务',
+  'sidebar.skills': '技能',
   'sidebar.terminal': '终端',
   'sidebar.settings': '设置',
   'sidebar.searchPlaceholder': '搜索会话...',
@@ -1999,6 +2000,12 @@ export const zh: Record<TranslationKey, string> = {
   'chat.retry.retrying': '正在重试…',
   'chat.fallback.title': '网络波动，已切换为非流式请求',
   'chat.fallback.detail': '响应将一次性返回，可能需要较长时间',
+
+  // ─── Skill Center ──────────────────────────────────────
+  'skillCenter.title': '技能',
+  'skillCenter.tab.marketplace': '市场',
+  'skillCenter.tab.mine': '我的',
+  'skillCenter.marketplace.loading': '正在加载技能市场...',
 
   // ─── Tabs ──────────────────────────────────────
   'tabs.close': '关闭',

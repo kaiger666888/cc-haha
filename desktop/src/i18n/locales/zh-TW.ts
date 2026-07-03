@@ -24,6 +24,7 @@ export const zh: Record<TranslationKey, string> = {
   // ─── Sidebar ──────────────────────────────────────
   'sidebar.newSession': '新建會話',
   'sidebar.scheduled': '定時任務',
+  'sidebar.skills': '技能',
   'sidebar.terminal': '終端',
   'sidebar.settings': '設定',
   'sidebar.searchPlaceholder': '搜尋會話...',
@@ -1999,6 +2000,12 @@ export const zh: Record<TranslationKey, string> = {
   'chat.retry.retrying': '正在重試…',
   'chat.fallback.title': '網路波動，已切換為非串流請求',
   'chat.fallback.detail': '回應將一次性返回，可能需要較長時間',
+
+  // ─── Skill Center ──────────────────────────────────────
+  'skillCenter.title': '技能',
+  'skillCenter.tab.marketplace': '市場',
+  'skillCenter.tab.mine': '我的',
+  'skillCenter.marketplace.loading': '正在載入技能市場...',
 
   // ─── Tabs ──────────────────────────────────────
   'tabs.close': '關閉',

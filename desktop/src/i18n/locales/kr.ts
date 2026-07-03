@@ -24,6 +24,7 @@ export const kr: Record<TranslationKey, string> = {
   // ─── Sidebar ──────────────────────────────────────
   'sidebar.newSession': '새 세션',
   'sidebar.scheduled': '예약 작업',
+  'sidebar.skills': '스킬',
   'sidebar.terminal': '터미널',
   'sidebar.settings': '설정',
   'sidebar.searchPlaceholder': '세션 검색...',
@@ -1999,6 +2000,12 @@ export const kr: Record<TranslationKey, string> = {
   'chat.retry.retrying': '지금 다시 시도 중…',
   'chat.fallback.title': '네트워크 불안정으로 비스트리밍 모드로 전환됨',
   'chat.fallback.detail': '응답이 한 번에 도착하므로 시간이 걸릴 수 있습니다',
+
+  // ─── Skill Center ──────────────────────────────────────
+  'skillCenter.title': '스킬',
+  'skillCenter.tab.marketplace': '마켓',
+  'skillCenter.tab.mine': '내 스킬',
+  'skillCenter.marketplace.loading': '스킬 마켓을 불러오는 중...',
 
   // ─── Tabs ──────────────────────────────────────
   'tabs.close': '닫기',

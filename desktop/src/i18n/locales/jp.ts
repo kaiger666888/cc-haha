@@ -24,6 +24,7 @@ export const jp: Record<TranslationKey, string> = {
   // ─── Sidebar ──────────────────────────────────────
   'sidebar.newSession': '新しいセッション',
   'sidebar.scheduled': 'スケジュール',
+  'sidebar.skills': 'スキル',
   'sidebar.terminal': 'ターミナル',
   'sidebar.settings': '設定',
   'sidebar.searchPlaceholder': 'セッションを検索...',
@@ -1999,6 +2000,12 @@ export const jp: Record<TranslationKey, string> = {
   'chat.retry.retrying': '再試行しています…',
   'chat.fallback.title': 'ネットワーク不調のため非ストリーミングに切替',
   'chat.fallback.detail': '応答は一括で届くため時間がかかることがあります',
+
+  // ─── Skill Center ──────────────────────────────────────
+  'skillCenter.title': 'スキル',
+  'skillCenter.tab.marketplace': 'マーケット',
+  'skillCenter.tab.mine': '自分のスキル',
+  'skillCenter.marketplace.loading': 'スキルマーケットを読み込み中...',
 
   // ─── Tabs ──────────────────────────────────────
   'tabs.close': '閉じる',

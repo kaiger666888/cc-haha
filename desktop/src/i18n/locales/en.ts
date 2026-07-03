@@ -22,6 +22,7 @@ export const en = {
   // ─── Sidebar ──────────────────────────────────────
   'sidebar.newSession': 'New session',
   'sidebar.scheduled': 'Scheduled',
+  'sidebar.skills': 'Skills',
   'sidebar.terminal': 'Terminal',
   'sidebar.settings': 'Settings',
   'sidebar.searchPlaceholder': 'Search sessions...',
@@ -1997,6 +1998,12 @@ export const en = {
   'chat.retry.retrying': 'retrying now…',
   'chat.fallback.title': 'Network hiccup — switched to non-streaming mode',
   'chat.fallback.detail': 'response arrives in one piece, this can take a while',
+
+  // ─── Skill Center ──────────────────────────────────────
+  'skillCenter.title': 'Skills',
+  'skillCenter.tab.marketplace': 'Marketplace',
+  'skillCenter.tab.mine': 'Mine',
+  'skillCenter.marketplace.loading': 'Loading skill marketplace...',
 
   // ─── Tabs ──────────────────────────────────────
   'tabs.close': 'Close',

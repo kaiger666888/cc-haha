@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { Check, ChevronDown, Clock, Folder, FolderOpen, FolderPlus, GitBranch, LoaderCircle, MoreHorizontal, Pin, PinOff, RefreshCw, RotateCcw, SquarePen, X } from 'lucide-react'
+import { Check, ChevronDown, Clock, Folder, FolderOpen, FolderPlus, GitBranch, LoaderCircle, MoreHorizontal, Pin, PinOff, RefreshCw, RotateCcw, Sparkles, SquarePen, X } from 'lucide-react'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useTranslation, type TranslationKey } from '../../i18n'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 import { GlobalSearchModal } from '../search/GlobalSearchModal'
 import type { SessionListItem } from '../../types/session'
-import { useTabStore, SETTINGS_TAB_ID, SCHEDULED_TAB_ID } from '../../stores/tabStore'
+import { useTabStore, SETTINGS_TAB_ID, SCHEDULED_TAB_ID, SKILL_CENTER_TAB_ID } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useOpenTargetStore } from '../../stores/openTargetStore'
 import { desktopUiPreferencesApi, type SidebarProjectPreferences } from '../../api/desktopUiPreferences'
@@ -687,6 +687,19 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
             {t('sidebar.scheduled')}
           </NavItem>
         )}
+        <NavItem
+          active={activeTabId === SKILL_CENTER_TAB_ID}
+          collapsed={!expanded}
+          label={t('sidebar.skills')}
+          touchFriendly={isMobile}
+          onClick={() => {
+            useTabStore.getState().openTab(SKILL_CENTER_TAB_ID, t('sidebar.skills'), 'skill-center')
+            closeMobileDrawer()
+          }}
+          icon={<Sparkles className="h-[18px] w-[18px]" strokeWidth={1.9} aria-hidden="true" />}
+        >
+          {t('sidebar.skills')}
+        </NavItem>
       </div>
 
       {expanded ? (
