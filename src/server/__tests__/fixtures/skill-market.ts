@@ -39,6 +39,8 @@ export const SKILLHUB_TOP_SKILLS_RESPONSE = {
         ownerName: 'spclaudehome',
         source: 'clawhub',
         upstream_url: 'https://clawhub.ai/spclaudehome/skill-vetter',
+        license: 'Apache-2.0',
+        tags: ['GitHub', 'Permission'],
         version: '1.0.0',
         labels: { requires_api_key: 'false' },
         verified: false,
@@ -49,7 +51,7 @@ export const SKILLHUB_TOP_SKILLS_RESPONSE = {
 
 export const SKILLHUB_DETAIL_RESPONSE = {
   contentZhAvailable: true,
-  latestVersion: { version: '1.0.0' },
+  latestVersion: { version: '1.0.1' },
   owner: { handle: 'spclaudehome', displayName: 'spclaudehome' },
   securityReports: {
     keen: { status: 'benign', statusText: '安全，无风险' },
@@ -63,6 +65,8 @@ export const SKILLHUB_DETAIL_RESPONSE = {
     sourceUrl: 'https://clawhub.ai/spclaudehome/skill-vetter',
     stats: { downloads: 273329, installs: 37273, stars: 1253 },
     labels: { requires_api_key: 'false' },
+    license: 'Apache-2.0',
+    tags: ['GitHub', 'Permission'],
     version: '1.0.0',
   },
 }

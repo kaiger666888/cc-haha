@@ -60,6 +60,8 @@ export function normalizeClawHubScan(payload: ClawHubScanResponse): {
   const scannerSummary = scannerEntries.find((entry) => entry.summary)?.summary
   const scannerSummaryForStatuses = (statuses: string[]) =>
     scannerEntries.find((entry) => entry.summary && entry.status && statuses.includes(entry.status))?.summary
+  const scannerSummaryExcludingStatuses = (statuses: string[]) =>
+    scannerEntries.find((entry) => entry.summary && (!entry.status || !statuses.includes(entry.status)))?.summary
 
   if (payload.status === 'clean' && !payload.hasWarnings) {
     return { trustState: 'clean', trustSummary: scannerSummary, packageSha256: payload.sha256 }
@@ -78,5 +80,9 @@ export function normalizeClawHubScan(payload: ClawHubScanResponse): {
       packageSha256: payload.sha256,
     }
   }
-  return { trustState: 'unknown', trustSummary: scannerSummary, packageSha256: payload.sha256 }
+  return {
+    trustState: 'unknown',
+    trustSummary: scannerSummaryExcludingStatuses(['benign', 'clean']),
+    packageSha256: payload.sha256,
+  }
 }

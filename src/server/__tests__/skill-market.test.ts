@@ -96,6 +96,19 @@ describe('skill market source normalization', () => {
     })
   })
 
+  it('does not use clean ClawHub scanner summaries for unknown scans', () => {
+    expect(normalizeClawHubScan({
+      status: 'unknown',
+      scanners: {
+        metadata: { status: 'clean', summary: 'No dangerous patterns detected.' },
+      },
+    })).toEqual({
+      trustState: 'unknown',
+      trustSummary: undefined,
+      packageSha256: undefined,
+    })
+  })
+
   it('normalizes SkillHub list items as fallback candidates with Chinese summary', () => {
     const result = normalizeSkillHubList(SKILLHUB_TOP_SKILLS_RESPONSE)
 
@@ -105,6 +118,8 @@ describe('skill market source normalization', () => {
       slug: 'skill-vetter',
       summaryZh: 'AI智能体技能安全预审工具。',
       canonicalUrl: 'https://clawhub.ai/spclaudehome/skill-vetter',
+      license: 'Apache-2.0',
+      tags: ['GitHub', 'Permission'],
       trustState: 'unknown',
       requiresApiKey: false,
     })
@@ -208,10 +223,49 @@ describe('skill market source normalization', () => {
       source: 'skillhub',
       sourceMode: 'fallback',
       slug: 'skill-vetter',
+      version: '1.0.1',
+      license: 'Apache-2.0',
+      tags: ['GitHub', 'Permission'],
       trustState: 'benign',
       trustSummary: '安全，无风险',
       installEligibility: { status: 'installable' },
     })
+  })
+
+  it('falls back to SkillHub skill version when latestVersion is missing', () => {
+    const detail = normalizeSkillHubDetail({
+      securityReports: {
+        keen: { status: 'benign', statusText: 'safe' },
+      },
+      skill: {
+        slug: 'legacy-version-skill',
+        displayName: 'Legacy Version Skill',
+        version: '0.9.0',
+      },
+    })
+
+    expect(detail.version).toBe('0.9.0')
+  })
+
+  it('blocks SkillHub details with warning security reports', () => {
+    for (const status of ['warning', 'suspicious']) {
+      const detail = normalizeSkillHubDetail({
+        securityReports: {
+          staticAnalysis: { status, statusText: 'Potentially risky tool use.' },
+        },
+        skill: {
+          slug: `${status}-skill`,
+          displayName: `${status} Skill`,
+        },
+      })
+
+      expect(detail.trustState).toBe('warning')
+      expect(detail.trustSummary).toBe('Potentially risky tool use.')
+      expect(detail.installEligibility).toEqual({
+        status: 'blocked',
+        reason: 'SkillHub security report returned warnings.',
+      })
+    }
   })
 
   it('blocks SkillHub details when security reports are missing', () => {
@@ -240,6 +294,7 @@ describe('skill market source normalization', () => {
     })
 
     expect(detail.trustState).toBe('unknown')
+    expect(detail.trustSummary).toBe('Scanner still reviewing.')
     expect(detail.installEligibility.status).toBe('blocked')
     expect(detail.installEligibility.reason).toMatch(/security report is missing or inconclusive/i)
   })

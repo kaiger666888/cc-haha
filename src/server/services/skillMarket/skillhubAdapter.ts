@@ -13,6 +13,8 @@ type SkillHubListResponse = {
       stars?: number
       ownerName?: string
       upstream_url?: string
+      license?: string | null
+      tags?: string[] | null
       version?: string
       labels?: { requires_api_key?: string }
       category?: string
@@ -22,7 +24,7 @@ type SkillHubListResponse = {
 }
 
 type SkillHubDetailResponse = {
-  latestVersion?: { version?: string }
+  latestVersion?: { version?: string; license?: string | null }
   owner?: { handle?: string; displayName?: string }
   securityReports?: Record<string, { status?: string; statusText?: string }>
   skill?: {
@@ -32,6 +34,9 @@ type SkillHubDetailResponse = {
     summary_zh?: string
     sourceUrl?: string
     stats?: { downloads?: number; installs?: number; stars?: number }
+    license?: string | null
+    tags?: string[] | null
+    version?: string
     labels?: { requires_api_key?: string }
     category?: string
   }
@@ -51,6 +56,9 @@ const SKILLHUB_DETAIL_INSTALLABLE_TRUST_STATES = new Set<SkillMarketTrustState>(
   'signed',
   'official',
 ])
+const SKILLHUB_BLOCKED_REPORT_STATUSES = new Set(['malicious', 'blocked'])
+const SKILLHUB_WARNING_REPORT_STATUSES = new Set(['warning', 'suspicious'])
+const SKILLHUB_BENIGN_REPORT_STATUSES = new Set(['benign', 'clean'])
 
 function requiresApiKey(labels?: { requires_api_key?: string }) {
   return labels?.requires_api_key === 'true'
@@ -86,18 +94,27 @@ function trustFromReports(reports?: Record<string, { status?: string; statusText
   trustSummary?: string
 } {
   const values = Object.values(reports ?? {})
-  if (values.some((report) => report.status === 'malicious' || report.status === 'blocked')) {
+  const summaryForStatuses = (statuses: Set<string>) =>
+    values.find((report) => report.status && statuses.has(report.status) && report.statusText)?.statusText
+  const summaryExcludingStatuses = (statuses: Set<string>) =>
+    values.find((report) => (!report.status || !statuses.has(report.status)) && report.statusText)?.statusText
+
+  if (values.some((report) => report.status && SKILLHUB_BLOCKED_REPORT_STATUSES.has(report.status))) {
     return {
       trustState: 'blocked',
-      trustSummary: values.find((report) =>
-        (report.status === 'malicious' || report.status === 'blocked') && report.statusText
-      )?.statusText,
+      trustSummary: summaryForStatuses(SKILLHUB_BLOCKED_REPORT_STATUSES),
+    }
+  }
+  if (values.some((report) => report.status && SKILLHUB_WARNING_REPORT_STATUSES.has(report.status))) {
+    return {
+      trustState: 'warning',
+      trustSummary: summaryForStatuses(SKILLHUB_WARNING_REPORT_STATUSES),
     }
   }
   if (values.length > 0 && values.every((report) => report.status === 'benign')) {
     return { trustState: 'benign', trustSummary: values.find((report) => report.statusText)?.statusText }
   }
-  return { trustState: 'unknown', trustSummary: values.find((report) => report.statusText)?.statusText }
+  return { trustState: 'unknown', trustSummary: summaryExcludingStatuses(SKILLHUB_BENIGN_REPORT_STATUSES) }
 }
 
 function installEligibilityFromTrustState(trustState: SkillMarketTrustState): SkillMarketDetail['installEligibility'] {
@@ -130,11 +147,13 @@ export function normalizeSkillHubList(payload: SkillHubListResponse): SkillMarke
         owner: item.ownerName,
         canonicalUrl: normalizedUrl,
         upstreamUrl: normalizedUrl,
+        license: item.license ?? null,
         version: item.version,
         downloads: item.downloads,
         installs: item.installs,
         stars: item.stars,
         category: item.category,
+        tags: item.tags ?? undefined,
         requiresApiKey: requiresApiKey(item.labels),
         trustState: item.verified ? 'signed' : 'unknown',
         installed: false,
@@ -164,11 +183,13 @@ export function normalizeSkillHubDetail(payload: SkillHubDetailResponse): SkillM
     summaryZh: skill.summary_zh,
     owner: payload.owner?.handle || payload.owner?.displayName,
     canonicalUrl: normalizedUrl,
-    version: payload.latestVersion?.version,
+    license: payload.latestVersion?.license ?? skill.license ?? null,
+    version: payload.latestVersion?.version ?? skill.version,
     downloads: skill.stats?.downloads,
     installs: skill.stats?.installs,
     stars: skill.stats?.stars,
     category: skill.category,
+    tags: skill.tags ?? undefined,
     requiresApiKey: requiresApiKey(skill.labels),
     trustState: trust.trustState,
     trustSummary: trust.trustSummary,
