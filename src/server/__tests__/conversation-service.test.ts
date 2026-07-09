@@ -979,6 +979,59 @@ describe('ConversationService', () => {
   test('default CLI shutdown wait covers the CLI graceful cleanup budget', () => {
     expect(DESKTOP_CLI_GRACEFUL_SHUTDOWN_TIMEOUT_MS).toBeGreaterThanOrEqual(6_000)
   })
+
+  test('isolates SDK output callbacks so one broken client cannot swallow turn completion', () => {
+    const service = new ConversationService() as any
+    let completionObserved = false
+    service.sessions.set('callback-isolation', {
+      outputCallbacks: [
+        () => { throw new Error('closed client socket') },
+        (message: any) => { completionObserved = message.type === 'result' },
+      ],
+      sdkMessages: [],
+      initMessage: null,
+      pendingPermissionRequests: new Map(),
+    })
+
+    service.handleSdkPayload('callback-isolation', JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+    }))
+
+    expect(completionObserved).toBe(true)
+  })
+
+  test('removes an exited CLI session even when one output callback throws', async () => {
+    const service = new ConversationService() as any
+    const sessionId = 'exit-callback-isolation'
+    const proc = {
+      exited: Promise.resolve(1),
+      kill: () => {},
+    }
+    let completionObserved = false
+    service.sessions.set(sessionId, {
+      proc,
+      startupPending: false,
+      startupExitCode: null,
+      outputDrain: Promise.resolve(),
+      outputCallbacks: [
+        () => { throw new Error('closed client socket') },
+        (message: any) => { completionObserved = message.type === 'result' },
+      ],
+      workDir: tmpDir,
+      permissionMode: 'default',
+      stdoutLines: [],
+      stderrLines: [],
+      sdkMessages: [],
+      pendingPermissionRequests: new Map(),
+    })
+
+    await service.handleProcessExit(sessionId, proc, 1)
+
+    expect(completionObserved).toBe(true)
+    expect(service.hasSession(sessionId)).toBe(false)
+  })
 })
 
 function sanitizeMemoryPath(value: string): string {

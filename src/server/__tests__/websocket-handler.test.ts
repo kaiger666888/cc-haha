@@ -18,6 +18,7 @@ import {
 } from '../ws/disconnectGraceConfig.js'
 import { conversationService } from '../services/conversationService.js'
 import { computerUseApprovalService } from '../services/computerUseApprovalService.js'
+import { sessionService } from '../services/sessionService.js'
 
 function makeClientSocket(sessionId: string) {
   const sent: string[] = []
@@ -442,6 +443,109 @@ describe('WebSocket handler session isolation', () => {
     // A late result must not schedule cleanup now that a client is back.
     turnCompleteCallback?.({ type: 'result', subtype: 'success' })
     expect(setTimeoutSpy).not.toHaveBeenCalled()
+  })
+
+  it('reports authoritative turn state when a reconnected client asks to reconcile', () => {
+    const runningSessionId = `sync-running-${crypto.randomUUID()}`
+    const runningSocket = makeClientSocket(runningSessionId)
+    spyOn(conversationService, 'getPendingPermissionRequests').mockReturnValue([])
+
+    handleWebSocket.open(runningSocket)
+    __markActiveTurnForTests(runningSessionId)
+    runningSocket.sent.length = 0
+    handleWebSocket.message(runningSocket, JSON.stringify({ type: 'sync_state' }))
+
+    expect(runningSocket.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+      type: 'session_state',
+      turnState: 'running',
+    })
+
+    const idleSessionId = `sync-idle-${crypto.randomUUID()}`
+    const idleSocket = makeClientSocket(idleSessionId)
+    handleWebSocket.open(idleSocket)
+    idleSocket.sent.length = 0
+    handleWebSocket.message(idleSocket, JSON.stringify({ type: 'sync_state' }))
+
+    expect(idleSocket.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+      type: 'session_state',
+      turnState: 'idle',
+    })
+  })
+
+  it('terminates the desktop turn when user-message handling throws unexpectedly', async () => {
+    const sessionId = `user-message-failure-${crypto.randomUUID()}`
+    const ws = makeClientSocket(sessionId)
+    spyOn(conversationService, 'getPendingPermissionRequests').mockReturnValue([])
+    spyOn(sessionService, 'getCustomTitle').mockRejectedValue(
+      new Error('metadata store unavailable'),
+    )
+
+    handleWebSocket.open(ws)
+    ws.sent.length = 0
+    handleWebSocket.message(ws, JSON.stringify({
+      type: 'user_message',
+      content: 'continue the long task',
+    }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const messages = ws.sent.map((payload) => JSON.parse(payload))
+    expect(messages).toContainEqual({
+      type: 'error',
+      message: 'The request could not be started. Please retry.',
+      code: 'USER_TURN_FAILED',
+      retryable: true,
+    })
+    expect(messages).toContainEqual({ type: 'status', state: 'idle' })
+
+    ws.sent.length = 0
+    handleWebSocket.message(ws, JSON.stringify({ type: 'sync_state' }))
+    expect(ws.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+      type: 'session_state',
+      turnState: 'idle',
+    })
+  })
+
+  it('does not let an older failed handler clear a newer active turn', async () => {
+    const sessionId = `concurrent-user-message-${crypto.randomUUID()}`
+    const ws = makeClientSocket(sessionId)
+    spyOn(conversationService, 'getPendingPermissionRequests').mockReturnValue([])
+
+    let rejectFirst!: (error: Error) => void
+    let customTitleCalls = 0
+    spyOn(sessionService, 'getCustomTitle').mockImplementation(() => {
+      customTitleCalls++
+      if (customTitleCalls === 1) {
+        return new Promise((_resolve, reject) => {
+          rejectFirst = reject
+        })
+      }
+      return new Promise(() => {})
+    })
+
+    handleWebSocket.open(ws)
+    handleWebSocket.message(ws, JSON.stringify({
+      type: 'user_message',
+      content: 'older turn',
+    }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(customTitleCalls).toBe(1)
+
+    handleWebSocket.message(ws, JSON.stringify({
+      type: 'user_message',
+      content: 'newer turn',
+    }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(customTitleCalls).toBe(2)
+
+    rejectFirst(new Error('older metadata request failed'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    ws.sent.length = 0
+    handleWebSocket.message(ws, JSON.stringify({ type: 'sync_state' }))
+    expect(ws.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+      type: 'session_state',
+      turnState: 'running',
+    })
   })
 })
 

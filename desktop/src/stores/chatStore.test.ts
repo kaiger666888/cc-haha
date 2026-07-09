@@ -3738,6 +3738,155 @@ describe('chatStore history mapping', () => {
     vi.useRealTimers()
   })
 
+  it('reloads authoritative history when a reconnect finds the turn already idle', async () => {
+    vi.mocked(sessionsApi.getMessages).mockClear()
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'completed-assistant',
+          type: 'assistant',
+          timestamp: '2026-07-10T00:00:00.000Z',
+          content: [{ type: 'text', text: 'Finished while the socket was offline.' }],
+        },
+      ],
+    })
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          chatState: 'thinking',
+          streamingText: 'stale partial',
+          messages: [{ id: 'user-1', type: 'user_text', content: 'long task', timestamp: 1 }],
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'session_state',
+      turnState: 'idle',
+    })
+
+    await vi.waitFor(() => {
+      expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toContainEqual(
+        expect.objectContaining({
+          type: 'assistant_text',
+          content: 'Finished while the socket was offline.',
+        }),
+      )
+    })
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(sessionsApi.getMessages).toHaveBeenCalledWith(TEST_SESSION_ID)
+    expect(session?.streamingText).toBe('')
+    expect(session?.messages).toContainEqual(expect.objectContaining({
+      type: 'assistant_text',
+      content: 'Finished while the socket was offline.',
+    }))
+  })
+
+  it('does not let delayed reconnect history overwrite a newly sent turn', async () => {
+    let resolveHistory!: (value: { messages: MessageEntry[] }) => void
+    vi.mocked(sessionsApi.getMessages).mockReturnValueOnce(new Promise((resolve) => {
+      resolveHistory = resolve
+    }))
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          chatState: 'thinking',
+          streamingText: 'old partial',
+          messages: [{ id: 'old-user', type: 'user_text', content: 'old turn', timestamp: 1 }],
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'session_state',
+      turnState: 'idle',
+    })
+    await vi.waitFor(() => {
+      expect(sessionsApi.getMessages).toHaveBeenCalledWith(TEST_SESSION_ID)
+    })
+    useChatStore.getState().sendMessage(TEST_SESSION_ID, 'new turn')
+
+    resolveHistory({
+      messages: [{
+        id: 'old-assistant',
+        type: 'assistant',
+        timestamp: '2026-07-10T00:00:00.000Z',
+        content: [{ type: 'text', text: 'old completed answer' }],
+      }],
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.chatState).toBe('thinking')
+    expect(session?.messages).toContainEqual(expect.objectContaining({
+      type: 'user_text',
+      content: 'new turn',
+    }))
+    expect(session?.messages).not.toContainEqual(expect.objectContaining({
+      type: 'assistant_text',
+      content: 'old completed answer',
+    }))
+    if (session?.elapsedTimer) clearInterval(session.elapsedTimer)
+  })
+
+  it('keeps the turn running but discards stale partials when reconnect reconciliation says running', async () => {
+    vi.mocked(sessionsApi.getMessages).mockClear()
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({ messages: [] })
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          chatState: 'streaming',
+          streamingText: 'still arriving',
+          streamingToolInput: '{"stale":',
+          activeToolUseId: 'stale-tool',
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'session_state',
+      turnState: 'running',
+    })
+    await vi.waitFor(() => {
+      expect(sessionsApi.getMessages).toHaveBeenCalledWith(TEST_SESSION_ID)
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]).toMatchObject({
+      chatState: 'thinking',
+      streamingText: '',
+      streamingToolInput: '',
+      activeToolUseId: null,
+    })
+  })
+
+  it('keeps the tab running for background agents when reconnect reconciliation finds the foreground idle', () => {
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          chatState: 'thinking',
+          backgroundAgentTasks: {
+            'agent-task-1': {
+              taskId: 'agent-task-1',
+              toolUseId: 'agent-tool-1',
+              status: 'running',
+              taskType: 'local_agent',
+              description: 'Review screenshots',
+              startedAt: 1,
+              updatedAt: 2,
+            },
+          },
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'session_state',
+      turnState: 'idle',
+    })
+
+    expect(updateTabStatusMock).toHaveBeenLastCalledWith(TEST_SESSION_ID, 'running')
+  })
+
   it('resumes the elapsed timer when streaming continues after the timer was lost', () => {
     vi.useFakeTimers()
 
@@ -4099,6 +4248,73 @@ describe('chatStore history mapping', () => {
       blockType: 'text',
     })
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.streamingFallback).toBeNull()
+  })
+
+  it('discards only the failed stream attempt before a safe retry', () => {
+    const completedTool = {
+      id: 'completed-tool',
+      type: 'tool_use' as const,
+      toolName: 'Read',
+      toolUseId: 'read-1',
+      input: { file_path: 'README.md' },
+      timestamp: 1,
+      isPending: false,
+    }
+    const completedResult = {
+      id: 'completed-result',
+      type: 'tool_result' as const,
+      toolUseId: 'read-1',
+      content: 'ok',
+      isError: false,
+      timestamp: 2,
+    }
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          messages: [
+            completedTool,
+            completedResult,
+            { id: 'failed-thinking', type: 'thinking', content: 'partial thought', timestamp: 3 },
+            {
+              id: 'failed-tool',
+              type: 'tool_use',
+              toolName: 'Write',
+              toolUseId: 'write-partial',
+              input: {},
+              timestamp: 4,
+              isPending: true,
+              partialInput: '{"file_path":',
+            },
+          ],
+          chatState: 'tool_executing',
+          streamingText: 'partial answer',
+          streamingToolInput: '{"file_path":',
+          activeToolUseId: 'write-partial',
+          activeToolName: 'Write',
+          activeThinkingId: 'failed-thinking',
+          streamingResponseChars: 200,
+          streamAttemptStartIndex: 2,
+          streamAttemptStartResponseChars: 80,
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'streaming_fallback',
+      cause: 'stream_retry',
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]).toMatchObject({
+      messages: [completedTool, completedResult],
+      chatState: 'thinking',
+      streamingText: '',
+      streamingToolInput: '',
+      activeToolUseId: null,
+      activeToolName: null,
+      activeThinkingId: null,
+      streamingResponseChars: 80,
+      streamingFallback: null,
+    })
   })
 
   it('keeps the fallback notice when idle and clears it on turn completion', () => {

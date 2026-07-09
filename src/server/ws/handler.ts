@@ -233,18 +233,36 @@ export const handleWebSocket = {
       ) as ClientMessage
 
       switch (message.type) {
-        case 'user_message':
-          handleUserMessage(ws, message).catch((err) => {
+        case 'user_message': {
+          const activeTurn: ActiveUserTurnState = { messageSent: false }
+          handleUserMessage(ws, message, activeTurn).catch((err) => {
+            const sessionId = ws.data.sessionId
             void diagnosticsService.recordEvent({
               type: 'ws_user_message_failed',
               severity: 'error',
-              sessionId: ws.data.sessionId,
+              sessionId,
               summary: err instanceof Error ? err.message : String(err),
               details: err,
             })
             console.error(`[WS] Unhandled error in handleUserMessage:`, err)
+            // A queued/newer turn may have replaced this handler while an
+            // earlier await was pending. Only the handler that still owns the
+            // active-turn token may terminate the desktop state.
+            if (activeUserTurns.get(sessionId) === activeTurn) {
+              clearActiveUserTurn(sessionId, activeTurn)
+              const titleState = sessionTitleState.get(sessionId)
+              if (titleState) titleState.activeTurn = undefined
+              sendMessage(ws, {
+                type: 'error',
+                message: 'The request could not be started. Please retry.',
+                code: 'USER_TURN_FAILED',
+                retryable: true,
+              })
+              sendMessage(ws, { type: 'status', state: 'idle' })
+            }
           })
           break
+        }
 
         case 'permission_response':
           handlePermissionResponse(ws, message)
@@ -264,6 +282,15 @@ export const handleWebSocket = {
 
         case 'prewarm_session':
           void handlePrewarmSession(ws)
+          break
+
+        case 'sync_state':
+          sendMessage(ws, {
+            type: 'session_state',
+            turnState: hasPendingOrActiveUserTurn(ws.data.sessionId)
+              ? 'running'
+              : 'idle',
+          })
           break
 
         case 'stop_generation':
@@ -326,7 +353,8 @@ export const handleWebSocket = {
 
 async function handleUserMessage(
   ws: ServerWebSocket<WebSocketData>,
-  message: Extract<ClientMessage, { type: 'user_message' }>
+  message: Extract<ClientMessage, { type: 'user_message' }>,
+  activeTurn: ActiveUserTurnState,
 ) {
   const { sessionId } = ws.data
 
@@ -353,7 +381,6 @@ async function handleUserMessage(
   // Send thinking status
   sendMessage(ws, { type: 'status', state: 'thinking', verb: 'Thinking' })
 
-  const activeTurn: ActiveUserTurnState = { messageSent: false }
   activeUserTurns.set(sessionId, activeTurn)
 
   const initialRuntimeTransition = await waitForRuntimeTransitionBeforeUserTurn(ws, sessionId)
@@ -1231,6 +1258,13 @@ function getStreamState(sessionId: string): SessionStreamState {
   return state
 }
 
+function resetCurrentStreamAttempt(state: SessionStreamState): void {
+  state.hasReceivedStreamEvents = false
+  state.activeBlockTypes.clear()
+  state.activeToolBlocks.clear()
+  state.pendingToolBlocks.clear()
+}
+
 function cliParentToolUseId(cliMsg: any): string | undefined {
   return typeof cliMsg.parent_tool_use_id === 'string' && cliMsg.parent_tool_use_id.length > 0
     ? cliMsg.parent_tool_use_id
@@ -1536,9 +1570,6 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
           }
         }
 
-        // Reset flags for next turn
-        streamState.hasReceivedStreamEvents = false
-        streamState.pendingToolBlocks.clear()
         return messages
       }
       return []
@@ -1620,7 +1651,7 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
 
       switch (event.type) {
         case 'message_start': {
-          return [{ type: 'status', state: 'thinking' }]
+          return [{ type: 'status', state: 'thinking', attemptStart: true }]
         }
 
         case 'content_block_start': {
@@ -1782,6 +1813,10 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
     case 'result': {
       // 对话结果（成功或错误）
       const usage = translateCliUsage(cliMsg.usage)
+      // Buffered assistant blocks can arrive as a batch after all raw events
+      // for one provider message. Keep deduplication active across the entire
+      // batch, then clear it only at the terminal result boundary.
+      resetCurrentStreamAttempt(streamState)
 
       if (cliMsg.is_error) {
         // If the user requested stop, this "error" is just the interrupt
@@ -1825,6 +1860,9 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
         return apiRetryMessage ? [apiRetryMessage] : []
       }
       if (subtype === 'streaming_fallback') {
+        // The next attempt is a new stream or a full non-streaming response;
+        // neither should inherit raw-event dedup/tool JSON from the failed one.
+        resetCurrentStreamAttempt(streamState)
         return [toStreamingFallbackServerMessage(cliMsg)]
       }
       if (subtype === 'init') {
@@ -2069,6 +2107,7 @@ const STREAMING_FALLBACK_CAUSES: ReadonlySet<StreamingFallbackCause> = new Set([
   'watchdog',
   'stream_error',
   '404_stream_creation',
+  'stream_retry',
 ])
 
 function toStreamingFallbackServerMessage(cliMsg: any): ServerMessage {

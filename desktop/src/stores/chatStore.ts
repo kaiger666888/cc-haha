@@ -116,10 +116,13 @@ export type PerSessionState = {
    * indicator — same estimation the CLI spinner uses. Reset on each send.
    */
   streamingResponseChars: number
+  /** Boundary used to discard one failed, side-effect-free stream attempt. */
+  streamAttemptStartIndex?: number
+  streamAttemptStartResponseChars?: number
   elapsedSeconds: number
   statusVerb: string
   apiRetry?: ApiRetryState | null
-  // 流式→非流式降级提示（活动回合状态，与 apiRetry 同清除时机）。
+  // 流式恢复/非流式降级提示（活动回合状态，与 apiRetry 同清除时机）。
   streamingFallback?: StreamingFallbackState | null
   slashCommands: Array<{ name: string; description: string; argumentHint?: string }>
   agentTaskNotifications: Record<string, AgentTaskNotification>
@@ -280,7 +283,13 @@ type ChatStore = {
   setSessionPermissionMode: (sessionId: string, mode: PermissionMode) => void
   stopGeneration: (sessionId: string) => void
   loadHistory: (sessionId: string) => Promise<void>
-  reloadHistory: (sessionId: string) => Promise<void>
+  reloadHistory: (
+    sessionId: string,
+    guard?: {
+      messages: UIMessage[]
+      backgroundAgentTasks?: Record<string, BackgroundAgentTask>
+    },
+  ) => Promise<void>
   queueComposerPrefill: (
     sessionId: string,
     prefill: { text: string; attachments?: UIAttachment[]; mode?: ComposerPrefillMode },
@@ -1426,7 +1435,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     return load
   },
 
-  reloadHistory: async (sessionId) => {
+  reloadHistory: async (sessionId, guard) => {
     try {
       const {
         uiMessages,
@@ -1437,6 +1446,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         hasMessagesAfterTaskCompletion,
         tokenUsage,
       } = await fetchAndMapSessionHistory(sessionId)
+
+      if (guard) {
+        const current = get().sessions[sessionId]
+        if (
+          !current ||
+          current.chatState !== 'idle' ||
+          current.messages !== guard.messages ||
+          current.backgroundAgentTasks !== guard.backgroundAgentTasks
+        ) {
+          return
+        }
+      }
 
       set((state) => {
         const session = state.sessions[sessionId]
@@ -1682,6 +1703,100 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       case 'connected':
         break
 
+      case 'session_state': {
+        const session = get().sessions[sessionId]
+        if (!session) break
+
+        if (msg.turnState === 'running') {
+          // Raw deltas are not replayable across a socket gap. Discard the
+          // uncommitted attempt instead of appending new deltas (or a missed
+          // stream_retry attempt) to stale text/tool JSON. Persisted completed
+          // messages are merged back below while the turn remains running.
+          consumePendingDelta(sessionId)
+          clearPendingToolInputDelta(sessionId)
+          clearPendingTaskToolUseIds(sessionId)
+          clearPendingToolParentUseIds(sessionId)
+          update((current) => {
+            const startIndex = Math.max(
+              0,
+              Math.min(
+                current.streamAttemptStartIndex ?? current.messages.length,
+                current.messages.length,
+              ),
+            )
+            return {
+              messages: [
+                ...current.messages.slice(0, startIndex),
+                ...current.messages.slice(startIndex).filter((message) =>
+                  message.type !== 'assistant_text' &&
+                  message.type !== 'thinking' &&
+                  !(message.type === 'tool_use' && message.isPending)),
+              ],
+              chatState: 'thinking',
+              streamingText: '',
+              streamingToolInput: '',
+              activeThinkingId: null,
+              activeToolUseId: null,
+              activeToolName: null,
+              streamingResponseChars:
+                current.streamAttemptStartResponseChars ?? current.streamingResponseChars,
+              streamAttemptStartIndex: undefined,
+              streamAttemptStartResponseChars: undefined,
+              apiRetry: null,
+              streamingFallback: null,
+              statusVerb: '',
+            }
+          })
+          useTabStore.getState().updateTabStatus(sessionId, 'running')
+          ensureElapsedTimer()
+          void get().loadHistory(sessionId)
+          break
+        }
+
+        if (session.chatState === 'idle') break
+
+        const text = `${session.streamingText}${consumePendingDelta(sessionId)}`
+        clearPendingToolInputDelta(sessionId)
+        clearPendingTaskToolUseIds(sessionId)
+        clearPendingToolParentUseIds(sessionId)
+        if (session.elapsedTimer) clearInterval(session.elapsedTimer)
+        const messagesWithText = text.trim()
+          ? appendAssistantTextMessage(session.messages, text, Date.now())
+          : session.messages
+        update(() => ({
+          messages: markPendingToolUseMessagesStopped(messagesWithText),
+          chatState: 'idle',
+          activeThinkingId: null,
+          activeToolUseId: null,
+          activeToolName: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          elapsedTimer: null,
+          statusVerb: '',
+          apiRetry: null,
+          streamingFallback: null,
+          streamingText: '',
+          streamingToolInput: '',
+        }))
+        const reconciledSession = get().sessions[sessionId]
+        const hasRunningBackgroundAgents = hasRunningBackgroundTasks(
+          reconciledSession?.backgroundAgentTasks,
+        )
+        useTabStore.getState().updateTabStatus(
+          sessionId,
+          hasRunningBackgroundAgents ? 'running' : 'idle',
+        )
+        // The terminal event may have arrived while this renderer was offline.
+        // Replace optimistic/partial state with the persisted transcript.
+        if (reconciledSession) {
+          void get().reloadHistory(sessionId, {
+            messages: reconciledSession.messages,
+            backgroundAgentTasks: reconciledSession.backgroundAgentTasks,
+          })
+        }
+        break
+      }
+
       case 'status':
         update((session) => {
           const pendingText = `${session.streamingText}${consumePendingDelta(sessionId)}`
@@ -1718,6 +1833,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 : '',
             ...(msg.state === 'idle' ? { activeThinkingId: null } : {}),
             ...(msg.state === 'idle' ? { apiRetry: null, streamingFallback: null } : {}),
+            ...(msg.attemptStart ? {
+              streamAttemptStartIndex: session.messages.length,
+              streamAttemptStartResponseChars: session.streamingResponseChars,
+            } : {}),
             ...(nextMessages !== session.messages ? { messages: nextMessages } : {}),
             ...(shouldFlush ? {
               streamingText: '',
@@ -1837,6 +1956,48 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       case 'streaming_fallback': {
+        if (msg.cause === 'stream_retry') {
+          consumePendingDelta(sessionId)
+          clearPendingToolInputDelta(sessionId)
+          clearPendingTaskToolUseIds(sessionId)
+          clearPendingToolParentUseIds(sessionId)
+          update((session) => {
+            const startIndex = Math.max(
+              0,
+              Math.min(
+                session.streamAttemptStartIndex ?? session.messages.length,
+                session.messages.length,
+              ),
+            )
+            const messages = [
+              ...session.messages.slice(0, startIndex),
+              ...session.messages.slice(startIndex).filter((message) =>
+                message.type !== 'assistant_text' &&
+                message.type !== 'thinking' &&
+                !(message.type === 'tool_use' && message.isPending)),
+            ]
+            return {
+              messages,
+              streamingText: '',
+              streamingToolInput: '',
+              activeToolUseId: null,
+              activeToolName: null,
+              activeThinkingId: null,
+              streamingResponseChars:
+                session.streamAttemptStartResponseChars ?? session.streamingResponseChars,
+              streamAttemptStartIndex: undefined,
+              streamAttemptStartResponseChars: undefined,
+              streamingFallback: null,
+              apiRetry: null,
+              chatState: 'thinking',
+              statusVerb: '',
+            }
+          })
+          ensureElapsedTimer()
+          useTabStore.getState().updateTabStatus(sessionId, 'running')
+          break
+        }
+
         // 进入非流式降级阶段：旧的重试横幅（针对失败的流式请求）已过时，
         // 清掉换成降级提示；后续非流式重试到来的 api_retry 会重新接管显示。
         update((session) => ({

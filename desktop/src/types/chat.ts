@@ -7,6 +7,7 @@ import type { RuntimeSelection } from './runtime'
 
 export type ClientMessage =
   | { type: 'prewarm_session' }
+  | { type: 'sync_state' }
   | { type: 'user_message'; content: string; attachments?: AttachmentRef[] }
   | {
       type: 'permission_response'
@@ -75,6 +76,7 @@ export type UIAttachment = {
 
 export type ServerMessage =
   | { type: 'connected'; sessionId: string }
+  | { type: 'session_state'; turnState: 'running' | 'idle' }
   | { type: 'content_start'; blockType: 'text' | 'tool_use'; toolName?: string; toolUseId?: string; parentToolUseId?: string }
   | { type: 'content_delta'; text?: string; toolInput?: string }
   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; input: unknown; parentToolUseId?: string }
@@ -107,7 +109,7 @@ export type ServerMessage =
   | { type: 'user_message_replay'; content: string }
   | { type: 'message_complete'; usage: TokenUsage }
   | { type: 'thinking'; text: string }
-  | { type: 'status'; state: ChatState; verb?: string }
+  | { type: 'status'; state: ChatState; verb?: string; attemptStart?: boolean }
   // CLI 回传的权限模式变化（如 ExitPlanMode 退出 plan 后恢复、Shift+Tab）。
   // 桌面端据此把选择器校正回 CLI 的真实权限，避免本地影子值漂移。
   | { type: 'permission_mode_changed'; mode: PermissionMode }
@@ -120,7 +122,7 @@ export type ServerMessage =
       errorType?: string
       errorMessage?: string
     }
-  // 流式请求失败、CLI 已降级为非流式重试：完整响应一次性返回，期间无增量输出。
+  // 流式请求失败后的恢复状态：可能安全重试流，也可能降级为非流式请求。
   | { type: 'streaming_fallback'; cause: StreamingFallbackCause }
   | { type: 'error'; message: string; code: string; retryable?: boolean; businessErrorCode?: string }
   | { type: 'system_notification'; subtype: string; message?: string; data?: unknown }
@@ -150,7 +152,7 @@ export type ApiRetryState = {
   receivedAt: number
 }
 
-export type StreamingFallbackCause = 'watchdog' | 'stream_error' | '404_stream_creation' | 'unknown'
+export type StreamingFallbackCause = 'watchdog' | 'stream_error' | '404_stream_creation' | 'stream_retry' | 'unknown'
 
 // 活动回合状态（与 apiRetry 同生命周期），不进消息历史。
 export type StreamingFallbackState = {

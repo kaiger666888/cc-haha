@@ -776,12 +776,28 @@ export class ConversationService {
         ) {
           session.pendingPermissionRequests.delete(msg.response.request_id)
         }
-        for (const cb of session.outputCallbacks) {
-          cb(msg)
-        }
+        this.notifyOutputCallbacks(sessionId, session.outputCallbacks, msg)
       } catch {
         console.warn(
           `[ConversationService] Ignoring malformed SDK payload for ${sessionId}`,
+        )
+      }
+    }
+  }
+
+  private notifyOutputCallbacks(
+    sessionId: string,
+    callbacks: Array<(msg: any) => void>,
+    message: any,
+  ): void {
+    for (const callback of [...callbacks]) {
+      try {
+        callback(message)
+      } catch (error) {
+        console.warn(
+          `[ConversationService] Output callback failed for ${sessionId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         )
       }
     }
@@ -990,17 +1006,16 @@ export class ConversationService {
           sdkMessages: this.summarizeSdkMessages(activeSession.sdkMessages),
         },
       })
-      for (const cb of activeSession.outputCallbacks) {
-        cb({
-          type: 'result',
-          subtype: 'error',
-          is_error: true,
-          result: exitError,
-          usage: { input_tokens: 0, output_tokens: 0 },
-          session_id: sessionId,
-        })
-      }
+      const callbacks = [...activeSession.outputCallbacks]
       this.sessions.delete(sessionId)
+      this.notifyOutputCallbacks(sessionId, callbacks, {
+        type: 'result',
+        subtype: 'error',
+        is_error: true,
+        result: exitError,
+        usage: { input_tokens: 0, output_tokens: 0 },
+        session_id: sessionId,
+      })
     }
   }
 
