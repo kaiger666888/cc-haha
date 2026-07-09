@@ -56,7 +56,7 @@ The Claude Code Haha desktop app brings sessions, multi-project navigation, bran
 
 1. Download the macOS / Windows / Linux desktop installer from [Releases](https://github.com/NanmiCoder/cc-haha/releases).
 2. On first launch, configure your model provider, API key, and default model in Settings.
-3. This build is currently unsigned, so the first launch needs a one-time manual approval (clear quarantine on macOS, click "Run anyway" on Windows). See the [desktop installation guide](docs/desktop/04-installation.md).
+3. Public macOS releases require signing and notarization. Draft or unsigned temporary builds may still need one-time manual approval. Unsigned Windows installers may show SmartScreen; click "More info" -> "Run anyway". See the [desktop installation guide](docs/desktop/04-installation.md).
 
 ## Run the CLI from Source
 
@@ -80,6 +80,8 @@ See [environment variables](docs/en/guide/env-vars.md) and [global usage](docs/e
 - **Visual code changes**: inspect edits, file writes, and diffs directly in the desktop app.
 - **Permission review**: approve risky commands, tool calls, and model follow-up questions in the GUI.
 - **Multi-provider setup**: configure Anthropic-compatible APIs, third-party models, WebSearch fallback, and local options.
+- **Skill Marketplace**: discover, preview, install, and manage third-party skills from ClawHub / SkillHub in the desktop app.
+- **Session Activity Panel**: review tasks, background tasks, SubAgents, team activity, and sources in one side panel.
 - **Computer Use**: let the agent take screenshots, click, type, and control desktop apps after authorization.
 - **H5 remote access**: open the current desktop session from a phone or another device with a one-time token.
 - **IM integration**: chat, switch projects, and approve actions through Telegram / Feishu / WeChat / DingTalk.
