@@ -1638,6 +1638,7 @@ export const en = {
   'permMode.permShell': 'Execute arbitrary shell commands',
   'permMode.permPackages': 'Install or remove packages',
   'permMode.enableBypassBtn': 'Enable bypass',
+  'permMode.disabledDuringTurn': 'Cannot switch permissions while session is active',
 
   // Mode labels (compact, for chips)
   'permMode.label.default': 'Ask permissions',

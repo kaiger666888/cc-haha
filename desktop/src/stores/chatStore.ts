@@ -1296,7 +1296,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   setSessionPermissionMode: (sessionId, mode) => {
-    if (!get().sessions[sessionId]) return
+    const session = get().sessions[sessionId]
+    if (!session || session.chatState !== 'idle') return
     wsManager.send(sessionId, { type: 'set_permission_mode', mode })
   },
 

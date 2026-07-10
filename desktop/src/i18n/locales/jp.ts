@@ -1640,6 +1640,7 @@ export const jp: Record<TranslationKey, string> = {
   'permMode.permShell': '任意のシェルコマンドの実行',
   'permMode.permPackages': 'パッケージのインストールまたは削除',
   'permMode.enableBypassBtn': 'バイパスを有効化',
+  'permMode.disabledDuringTurn': 'セッションの実行中は権限を切り替えられません',
 
   // Mode labels (compact, for chips)
   'permMode.label.default': '権限を確認',

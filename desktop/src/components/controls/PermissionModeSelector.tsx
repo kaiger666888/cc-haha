@@ -107,6 +107,13 @@ export function PermissionModeSelector({ workDir: workDirProp, compact = false, 
   const menuId = 'permission-mode-menu'
 
   useEffect(() => {
+    if (isTurnActive) {
+      setOpen(false)
+      setConfirmDialog(false)
+    }
+  }, [isTurnActive])
+
+  useEffect(() => {
     if (!open) return
     const handleClick = (e: MouseEvent) => {
       const target = e.target as Node
@@ -136,6 +143,10 @@ export function PermissionModeSelector({ workDir: workDirProp, compact = false, 
           key={item.value}
           role="menuitem"
           onClick={() => {
+            if (isTurnActive) {
+              setOpen(false)
+              return
+            }
             if (item.value === 'bypassPermissions') {
               setOpen(false)
               setConfirmDialog(true)
@@ -265,6 +276,10 @@ export function PermissionModeSelector({ workDir: workDirProp, compact = false, 
           {
             label: t('permMode.enableBypassBtn'),
             onClick: () => {
+              if (isTurnActive) {
+                setConfirmDialog(false)
+                return
+              }
               if (isControlled) {
                 onChange?.('bypassPermissions')
               } else if (activeTabId) {

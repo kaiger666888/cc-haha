@@ -1640,6 +1640,7 @@ export const kr: Record<TranslationKey, string> = {
   'permMode.permShell': '임의의 셸 명령 실행',
   'permMode.permPackages': '패키지 설치 또는 제거',
   'permMode.enableBypassBtn': '우회 사용',
+  'permMode.disabledDuringTurn': '세션이 진행 중일 때는 권한을 변경할 수 없습니다',
 
   // Mode labels (compact, for chips)
   'permMode.label.default': '권한 확인',

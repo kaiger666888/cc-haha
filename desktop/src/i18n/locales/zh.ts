@@ -1640,6 +1640,7 @@ export const zh: Record<TranslationKey, string> = {
   'permMode.permShell': '执行任意 Shell 命令',
   'permMode.permPackages': '安装或移除软件包',
   'permMode.enableBypassBtn': '启用跳过',
+  'permMode.disabledDuringTurn': '会话进行中，无法切换权限',
 
   // Mode labels (compact, for chips)
   'permMode.label.default': '询问权限',

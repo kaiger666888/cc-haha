@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom'
 
@@ -45,15 +45,43 @@ vi.mock('../../i18n', () => ({
 }))
 
 import { PermissionModeSelector } from './PermissionModeSelector'
-import { useChatStore } from '../../stores/chatStore'
+import { useChatStore, type PerSessionState } from '../../stores/chatStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useTabStore } from '../../stores/tabStore'
+
+const initialSetSessionPermissionMode = useChatStore.getState().setSessionPermissionMode
+
+function makeChatSession(chatState: PerSessionState['chatState']): PerSessionState {
+  return {
+    messages: [],
+    chatState,
+    connectionState: 'connected',
+    streamingText: '',
+    streamingToolInput: '',
+    activeToolUseId: null,
+    activeToolName: null,
+    activeThinkingId: null,
+    pendingPermission: null,
+    pendingComputerUsePermission: null,
+    tokenUsage: { input_tokens: 0, output_tokens: 0 },
+    streamingResponseChars: 0,
+    elapsedSeconds: 0,
+    statusVerb: '',
+    slashCommands: [],
+    agentTaskNotifications: {},
+    elapsedTimer: null,
+  }
+}
 
 describe('PermissionModeSelector', () => {
   beforeEach(() => {
     viewportMocks.isMobile = false
     useSettingsStore.setState({ permissionMode: 'default' })
+    useChatStore.setState({
+      sessions: {},
+      setSessionPermissionMode: initialSetSessionPermissionMode,
+    })
     useSessionStore.setState({ sessions: [], activeSessionId: null })
     useTabStore.setState({ activeTabId: null, tabs: [] })
   })
@@ -166,9 +194,9 @@ describe('PermissionModeSelector', () => {
     useChatStore.setState({
       setSessionPermissionMode,
       sessions: {
-        'current-tab': { chatState: 'thinking' },
+        'current-tab': makeChatSession('thinking'),
       },
-    } as Partial<ReturnType<typeof useChatStore.getState>>)
+    })
     useSessionStore.setState({
       activeSessionId: 'current-tab',
       sessions: [
@@ -201,5 +229,62 @@ describe('PermissionModeSelector', () => {
     // Menu should not open when disabled
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     expect(setSessionPermissionMode).not.toHaveBeenCalled()
+  })
+
+  it('closes an open permission menu when the session turn starts', () => {
+    useChatStore.setState({
+      sessions: {
+        'current-tab': makeChatSession('idle'),
+      },
+    })
+    useTabStore.setState({
+      activeTabId: 'current-tab',
+      tabs: [{ sessionId: 'current-tab', title: 'Current', type: 'session', status: 'idle' }],
+    })
+
+    render(<PermissionModeSelector />)
+
+    const trigger = screen.getByRole('button', { name: 'Ask permissions' })
+    fireEvent.click(trigger)
+    expect(screen.getByRole('menuitem', { name: /Auto accept edits/ })).toBeInTheDocument()
+
+    act(() => {
+      useChatStore.setState({
+        sessions: {
+          'current-tab': makeChatSession('thinking'),
+        },
+      })
+    })
+
+    expect(trigger).toBeDisabled()
+    expect(screen.queryByRole('menuitem', { name: /Auto accept edits/ })).not.toBeInTheDocument()
+  })
+
+  it('closes an open bypass confirmation when the session turn starts', () => {
+    useChatStore.setState({
+      sessions: {
+        'current-tab': makeChatSession('idle'),
+      },
+    })
+    useTabStore.setState({
+      activeTabId: 'current-tab',
+      tabs: [{ sessionId: 'current-tab', title: 'Current', type: 'session', status: 'idle' }],
+    })
+
+    render(<PermissionModeSelector />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Bypass permissions/ }))
+    expect(screen.getByRole('dialog', { name: 'Enable bypass mode' })).toBeInTheDocument()
+
+    act(() => {
+      useChatStore.setState({
+        sessions: {
+          'current-tab': makeChatSession('tool_executing'),
+        },
+      })
+    })
+
+    expect(screen.queryByRole('dialog', { name: 'Enable bypass mode' })).not.toBeInTheDocument()
   })
 })
