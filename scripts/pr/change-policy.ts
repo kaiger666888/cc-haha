@@ -249,15 +249,9 @@ function missingTestSignals(files: string[]) {
   const desktopProd = changedProductionFiles(files, (file) => file.startsWith('desktop/src/'))
   const serverProd = changedProductionFiles(files, (file) => file.startsWith('src/server/'))
   const adapterProd = changedProductionFiles(files, (file) => file.startsWith('adapters/'))
-  const agentRuntimeProd = changedProductionFiles(files, (file) => (
-    file.startsWith('src/tools/') ||
-    file.startsWith('src/utils/')
-  ))
   const rootRuntimeProd = changedProductionFiles(files, (file) => (
     file.startsWith('src/') &&
-    !file.startsWith('src/server/') &&
-    !file.startsWith('src/tools/') &&
-    !file.startsWith('src/utils/')
+    !file.startsWith('src/server/')
   ))
 
   if (desktopProd.length > 0 && !hasMatchingTest(files, (file) => file.startsWith('desktop/src/'))) {
@@ -269,14 +263,9 @@ function missingTestSignals(files: string[]) {
   if (adapterProd.length > 0 && !hasMatchingTest(files, (file) => file.startsWith('adapters/'))) {
     signals.push('Adapter product files changed without an adapter test file in the PR.')
   }
-  if (agentRuntimeProd.length > 0 && !hasMatchingTest(files, (file) => file.startsWith('src/tools/') || file.startsWith('src/utils/'))) {
-    signals.push('Agent/runtime product files changed without a tools/utils test file in the PR.')
-  }
   if (rootRuntimeProd.length > 0 && !hasMatchingTest(files, (file) => (
     file.startsWith('src/') &&
-    !file.startsWith('src/server/') &&
-    !file.startsWith('src/tools/') &&
-    !file.startsWith('src/utils/')
+    !file.startsWith('src/server/')
   ))) {
     signals.push('Root runtime product files changed without a matching root runtime test file in the PR.')
   }

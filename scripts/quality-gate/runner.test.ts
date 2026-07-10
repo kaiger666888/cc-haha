@@ -433,6 +433,52 @@ describe('runQualityGate', () => {
     }
   })
 
+  test('fails PR mode when the impact report is blocked by policy', async () => {
+    const artifactsDir = mkdtempSync(join(tmpdir(), 'quality-gate-test-'))
+    const lanes: LaneDefinition[] = [
+      {
+        id: 'impact-report',
+        title: 'Impact report',
+        description: 'Writes a blocked policy decision',
+        kind: 'command',
+        command: ['bash', '-lc', [
+          'printf "%s\\n"',
+          '"# PR impact report"',
+          '""',
+          '"Changed files: 1"',
+          '"Areas: cli-core"',
+          '"Labels: none"',
+          '"Blocked: yes"',
+          '"Blocking reasons:"',
+          '"- CLI core changes require maintainer approval."',
+          '""',
+          '"## Required local checks"',
+          '"- bun run check:server"',
+        ].join(' ')],
+        requiredForModes: ['pr'],
+      },
+    ]
+
+    try {
+      const { report } = await runQualityGateLanes({
+        mode: 'pr',
+        dryRun: false,
+        allowLive: false,
+        baselineTargets: [],
+        rootDir: process.cwd(),
+        artifactsDir,
+        runId: 'blocked-impact-test',
+      }, lanes)
+
+      expect(report.impact?.blocked).toBe(true)
+      expect(report.results[0].status).toBe('failed')
+      expect(report.results[0].error).toContain('change policy blocked')
+      expect(report.summary.failed).toBe(1)
+    } finally {
+      rmSync(artifactsDir, { recursive: true, force: true })
+    }
+  })
+
   test('release mode treats skipped live lanes as failures', async () => {
     const artifactsDir = mkdtempSync(join(tmpdir(), 'quality-gate-test-'))
     const lanes: LaneDefinition[] = [

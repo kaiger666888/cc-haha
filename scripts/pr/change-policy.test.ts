@@ -171,6 +171,19 @@ describe('evaluateChangePolicy', () => {
     expect(covered.missingTestSignals).toEqual([])
   })
 
+  test('accepts root runtime regression tests across service and utility seams', () => {
+    const result = evaluateChangePolicy(
+      [
+        'src/utils/messages.ts',
+        'src/services/api/streamRetry.test.ts',
+      ],
+      ['allow-cli-core-change'],
+    )
+
+    expect(result.missingTestSignals).toEqual([])
+    expect(result.blocked).toBe(false)
+  })
+
   test('blocks coverage baseline and threshold changes without maintainer override', () => {
     const result = evaluateChangePolicy([
       'scripts/quality-gate/coverage-baseline.json',
