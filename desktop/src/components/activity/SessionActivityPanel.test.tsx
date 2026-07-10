@@ -310,7 +310,7 @@ describe('SessionActivityPanel', () => {
     expect(screen.getByRole('button', { name: 'Stopping background task Sleep for 300 seconds' })).toBeDisabled()
   })
 
-  it('offers the same stop control for a running background SubAgent', () => {
+  it('does not offer the background task stop control for a running SubAgent', () => {
     const onStopBackgroundTask = vi.fn()
     render(
       <SessionActivityPanel
@@ -341,8 +341,7 @@ describe('SessionActivityPanel', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Stop background task Background reviewer' }))
-    expect(onStopBackgroundTask).toHaveBeenCalledWith('agent-task-1')
+    expect(screen.queryByRole('button', { name: 'Stop background task Background reviewer' })).not.toBeInTheDocument()
   })
 
   it('keeps SubAgent rows to name and status instead of result previews', () => {

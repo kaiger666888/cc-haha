@@ -351,7 +351,7 @@ function ActivityRowView({
   )
   const interactiveRowClassName =
     'flex min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-[background-color,transform] duration-150 ease-out hover:bg-[var(--color-surface-hover)] active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]'
-  const stopButton = onStopBackgroundTask ? (
+  const stopButton = row.section === 'backgroundTasks' && onStopBackgroundTask ? (
     <BackgroundTaskStopButton
       row={row}
       stopping={Boolean(stoppingBackgroundTask)}
