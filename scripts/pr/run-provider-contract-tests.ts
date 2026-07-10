@@ -3,6 +3,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { rootBunTestFilter } from './bun-test-filter'
 import { createSandboxedTestEnvironment } from './test-environment'
 
 const root = join(import.meta.dir, '..', '..')
@@ -34,7 +35,12 @@ for (const testFile of testFiles) {
   const sandboxHome = mkdtempSync(join(tmpdir(), 'cc-haha-provider-contract-'))
   let exitCode = 1
   try {
-    const proc = Bun.spawn(['bun', '--no-env-file', 'test', testFile], {
+    const proc = Bun.spawn([
+      'bun',
+      '--no-env-file',
+      'test',
+      rootBunTestFilter(testFile),
+    ], {
       cwd: root,
       env: createSandboxedTestEnvironment(sandboxHome),
       stdout: 'inherit',

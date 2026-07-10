@@ -3,6 +3,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
+import { rootBunTestFilter } from './bun-test-filter'
 import { createSandboxedTestEnvironment } from './test-environment'
 
 interface ContractSuite {
@@ -20,7 +21,7 @@ const suites: ContractSuite[] = [
       'bun',
       '--no-env-file',
       'test',
-      'src/server/__tests__/websocket-handler.test.ts',
+      rootBunTestFilter('src/server/__tests__/websocket-handler.test.ts'),
     ],
   },
   {
@@ -30,7 +31,7 @@ const suites: ContractSuite[] = [
       'bun',
       '--no-env-file',
       'test',
-      'src/server/__tests__/conversations.test.ts',
+      rootBunTestFilter('src/server/__tests__/conversations.test.ts'),
     ],
   },
   {

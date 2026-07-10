@@ -4,6 +4,7 @@ import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { loadQuarantineManifest, quarantinedPathSet } from '../quality-gate/quarantine'
+import { rootBunTestFilter } from './bun-test-filter'
 import { createSandboxedTestEnvironment } from './test-environment'
 
 const root = process.cwd()
@@ -69,7 +70,14 @@ async function runTestFile(file: string): Promise<TestFileResult> {
   const sandboxHome = mkdtempSync(join(tmpdir(), 'cc-haha-server-test-'))
   try {
     const proc = Bun.spawn(
-      ['bun', '--no-env-file', 'test', '--max-concurrency=1', '--timeout=20000', file],
+      [
+        'bun',
+        '--no-env-file',
+        'test',
+        '--max-concurrency=1',
+        '--timeout=20000',
+        rootBunTestFilter(file),
+      ],
       {
         cwd: root,
         env: createSandboxedTestEnvironment(sandboxHome),

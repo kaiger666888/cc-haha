@@ -90,6 +90,7 @@ describe('feature quality contract', () => {
     expect(packageJson.scripts?.['check:persistence-upgrade']).toBe('bun run scripts/quality-gate/persistence-upgrade.ts')
     expect(packageJson.scripts?.['check:provider-contract']).toBe('bun run scripts/pr/run-provider-contract-tests.ts')
     expect(packageJson.scripts?.['check:chat-contract']).toBe('bun run scripts/pr/run-chat-contract-tests.ts')
+    expect(packageJson.scripts?.['check:policy']).toContain('bun test ./scripts/')
     expect(packageJson.scripts?.['check:native']).toContain('electron:package:dir')
     expect(packageJson.scripts?.['check:native']).toContain('test:package-smoke:current')
     expect(packageJson.scripts?.['test:package-smoke:current']).toBe('bun run scripts/quality-gate/package-smoke/current.ts')
@@ -137,6 +138,7 @@ describe('feature quality contract', () => {
     expect(serverRunner).toContain('TEST_FILE_PATTERN')
     expect(serverRunner).toContain("'--no-env-file'")
     expect(serverRunner).toContain('createSandboxedTestEnvironment')
+    expect(serverRunner).toContain('rootBunTestFilter(file)')
     expect(serverRunner).toContain('evidenceComplete')
     expect(serverRunner).toContain('reportedFiles === 1')
     expect(serverRunner).toContain('passedTests + failedTests > 0')
@@ -145,6 +147,7 @@ describe('feature quality contract', () => {
     expect(coverageRunner).toContain('TEST_FILE_PATTERN')
     expect(coverageRunner).toContain("'--no-env-file'")
     expect(coverageRunner).toContain('createSandboxedTestEnvironment')
+    expect(coverageRunner).toContain('serverFiles.map(rootBunTestFilter)')
     expect(coverageRunner).toContain("correctness is enforced by check:server's per-file sandboxed test processes")
     expect(coverageRunner).toContain('rootCoverageAvailable')
     expect(coverageRunner).toContain('rootTestDiscoveryComplete')
@@ -152,6 +155,7 @@ describe('feature quality contract', () => {
     for (const contractRunner of [providerRunner, chatRunner]) {
       expect(contractRunner).toContain("'--no-env-file'")
       expect(contractRunner).toContain('createSandboxedTestEnvironment')
+      expect(contractRunner).toContain('rootBunTestFilter')
     }
   })
 

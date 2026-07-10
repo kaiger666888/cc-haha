@@ -150,7 +150,7 @@ export function lanesForMode(mode: QualityGateMode, baselineTargets: BaselineTar
       title: 'Baseline case catalog validation',
       description: 'Validate real Coding Agent baseline case definitions and fixture metadata.',
       kind: 'command',
-      command: ['bun', 'test', 'scripts/quality-gate/baseline/cases.test.ts'],
+      command: ['bun', 'test', './scripts/quality-gate/baseline/cases.test.ts'],
       requiredForModes: ['baseline', 'release'],
       category: 'unit',
     },
