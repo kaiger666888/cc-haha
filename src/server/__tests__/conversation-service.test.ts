@@ -486,6 +486,7 @@ describe('ConversationService', () => {
     expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('kimi-k2.6')
     expect(env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST).toBe('1')
     expect(env.CLAUDE_CODE_ATTRIBUTION_HEADER).toBe('0')
+    expect(env.CC_HAHA_TRANSCRIPT_ENTRYPOINT).toBe('claude-desktop')
     expect(env.CLAUDE_CODE_ENTRYPOINT).toBeUndefined()
     expect(env.CC_HAHA_TRACE_PROVIDER_ID).toBeUndefined()
     expect(env.CC_HAHA_TRACE_PROVIDER_NAME).toBeUndefined()

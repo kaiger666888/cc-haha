@@ -1206,6 +1206,9 @@ export class ConversationService {
       // should come from Desktop-managed config or inherited launch env, not
       // be reintroduced from the repo's .env file.
       CC_HAHA_SKIP_DOTENV: '1',
+      // Keep the SDK runtime identity for auth and client behavior, but stamp
+      // desktop-owned transcripts with an entrypoint visible to Claude /resume.
+      CC_HAHA_TRANSCRIPT_ENTRYPOINT: 'claude-desktop',
       ...(explicitProviderEnv
         ? { CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: '1' }
         : {}),
