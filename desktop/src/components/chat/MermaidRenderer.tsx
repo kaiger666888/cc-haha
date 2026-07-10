@@ -65,10 +65,19 @@ function isSlashDelimitedFlowchartShape(label: string) {
   return trimmed.length >= 2 && trimmed.startsWith('/') && trimmed.endsWith('/')
 }
 
+function isBracketDelimitedFlowchartShape(label: string) {
+  const trimmed = label.trim()
+  return (
+    (trimmed.startsWith('(') && trimmed.endsWith(')')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  )
+}
+
 function shouldQuoteFlowchartLabel(label: string) {
   return (
     !isQuotedFlowchartLabel(label) &&
     !isSlashDelimitedFlowchartShape(label) &&
+    !isBracketDelimitedFlowchartShape(label) &&
     UNQUOTED_FLOWCHART_LABEL_UNSAFE.test(label)
   )
 }
