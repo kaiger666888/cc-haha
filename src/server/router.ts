@@ -84,12 +84,10 @@ export async function handleApiRequest(req: Request, url: URL): Promise<Response
     case 'haha-openai-oauth':
       return handleHahaOpenAIOAuthApi(req, url, segments)
 
-    case 'adapters': {
+    case 'adapters':
       // Adapter protocols pull in platform SDKs that are unnecessary for the
       // core server path. Load them only when this API is actually used.
-      const { handleAdaptersApi } = await import('./api/adapters.js')
-      return handleAdaptersApi(req, url, segments)
-    }
+      return (await import('./api/adapters.js')).handleAdaptersApi(req, url, segments)
 
     case 'skills':
       return handleSkillsApi(req, url, segments)

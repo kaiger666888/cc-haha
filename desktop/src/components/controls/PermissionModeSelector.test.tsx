@@ -406,4 +406,69 @@ describe('PermissionModeSelector', () => {
     expect(setSessionPermissionMode).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog', { name: 'Enable bypass mode' })).not.toBeInTheDocument()
   })
+
+  it('reports controlled permission changes through onChange', () => {
+    const onChange = vi.fn()
+
+    render(<PermissionModeSelector value="default" onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Auto accept edits/ }))
+
+    expect(onChange).toHaveBeenCalledWith('acceptEdits')
+  })
+
+  it('closes the permission menu when its trigger is clicked again', () => {
+    render(<PermissionModeSelector />)
+
+    const trigger = screen.getByRole('button', { name: 'Ask permissions' })
+    fireEvent.click(trigger)
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(trigger)
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('closes the permission menu when the active tab changes', () => {
+    useChatStore.setState({
+      sessions: {
+        'current-tab': makeChatSession('idle'),
+        'next-tab': makeChatSession('idle'),
+      },
+    })
+    useTabStore.setState({
+      activeTabId: 'current-tab',
+      tabs: [{ sessionId: 'current-tab', title: 'Current', type: 'session', status: 'idle' }],
+    })
+
+    render(<PermissionModeSelector />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+
+    act(() => {
+      useTabStore.setState({
+        activeTabId: 'next-tab',
+        tabs: [{ sessionId: 'next-tab', title: 'Next', type: 'session', status: 'idle' }],
+      })
+    })
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('closes bypass confirmation through both dialog close actions', () => {
+    render(<PermissionModeSelector />)
+
+    const openDialog = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: /Bypass permissions/ }))
+    }
+
+    openDialog()
+    fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }))
+    expect(screen.queryByRole('dialog', { name: 'Enable bypass mode' })).not.toBeInTheDocument()
+
+    openDialog()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog', { name: 'Enable bypass mode' })).not.toBeInTheDocument()
+  })
 })
