@@ -1,6 +1,9 @@
 #!/usr/bin/env bun
 
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
+import { createSandboxedTestEnvironment } from './test-environment'
 
 interface ContractSuite {
   name: string
@@ -11,12 +14,22 @@ interface ContractSuite {
 const root = resolve(import.meta.dir, '../..')
 const suites: ContractSuite[] = [
   {
-    name: 'server mock CLI and WebSocket contracts',
+    name: 'server WebSocket handler contracts',
     cwd: root,
     command: [
       'bun',
+      '--no-env-file',
       'test',
       'src/server/__tests__/websocket-handler.test.ts',
+    ],
+  },
+  {
+    name: 'server mock CLI conversation contracts',
+    cwd: root,
+    command: [
+      'bun',
+      '--no-env-file',
+      'test',
       'src/server/__tests__/conversations.test.ts',
     ],
   },
@@ -25,6 +38,7 @@ const suites: ContractSuite[] = [
     cwd: resolve(root, 'desktop'),
     command: [
       'bun',
+      '--no-env-file',
       'run',
       'test',
       '--',
@@ -48,12 +62,19 @@ for (const [index, suite] of suites.entries()) {
   console.log(`[chat-contract] cwd: ${suite.cwd}`)
   console.log(`[chat-contract] $ ${suite.command.join(' ')}`)
 
-  const proc = Bun.spawn(suite.command, {
-    cwd: suite.cwd,
-    stdout: 'inherit',
-    stderr: 'inherit',
-  })
-  const exitCode = await proc.exited
+  const sandboxHome = mkdtempSync(resolve(tmpdir(), 'cc-haha-chat-contract-'))
+  let exitCode = 1
+  try {
+    const proc = Bun.spawn(suite.command, {
+      cwd: suite.cwd,
+      env: createSandboxedTestEnvironment(sandboxHome),
+      stdout: 'inherit',
+      stderr: 'inherit',
+    })
+    exitCode = await proc.exited
+  } finally {
+    rmSync(sandboxHome, { recursive: true, force: true })
+  }
 
   if (exitCode !== 0) {
     console.error(

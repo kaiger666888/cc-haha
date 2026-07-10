@@ -1,6 +1,9 @@
 #!/usr/bin/env bun
 
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createSandboxedTestEnvironment } from './test-environment'
 
 const root = join(import.meta.dir, '..', '..')
 // Keep this lane deterministic. Real credentials and third-party connectivity
@@ -28,12 +31,19 @@ const testFiles = [
 
 for (const testFile of testFiles) {
   console.log(`\n[provider-contract] ${testFile}`)
-  const proc = Bun.spawn(['bun', 'test', testFile], {
-    cwd: root,
-    stdout: 'inherit',
-    stderr: 'inherit',
-  })
-  const exitCode = await proc.exited
+  const sandboxHome = mkdtempSync(join(tmpdir(), 'cc-haha-provider-contract-'))
+  let exitCode = 1
+  try {
+    const proc = Bun.spawn(['bun', '--no-env-file', 'test', testFile], {
+      cwd: root,
+      env: createSandboxedTestEnvironment(sandboxHome),
+      stdout: 'inherit',
+      stderr: 'inherit',
+    })
+    exitCode = await proc.exited
+  } finally {
+    rmSync(sandboxHome, { recursive: true, force: true })
+  }
   if (exitCode !== 0) {
     process.exit(exitCode)
   }

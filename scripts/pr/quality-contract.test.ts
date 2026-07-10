@@ -124,6 +124,37 @@ describe('feature quality contract', () => {
     expect(buildSidecars).toContain("process.arch")
   })
 
+  test('keeps stateful server tests deterministic', () => {
+    const serverRunner = readFileSync('scripts/pr/run-server-tests.ts', 'utf8')
+    const providerRunner = readFileSync('scripts/pr/run-provider-contract-tests.ts', 'utf8')
+    const chatRunner = readFileSync('scripts/pr/run-chat-contract-tests.ts', 'utf8')
+    const testEnvironment = readFileSync('scripts/pr/test-environment.ts', 'utf8')
+    const coverageRunner = readFileSync('scripts/quality-gate/coverage.ts', 'utf8')
+
+    expect(serverRunner).toContain("'--max-concurrency=1'")
+    expect(serverRunner).toContain("'--timeout=20000'")
+    expect(serverRunner).toContain('TEST_PROCESS_CONCURRENCY = 4')
+    expect(serverRunner).toContain('TEST_FILE_PATTERN')
+    expect(serverRunner).toContain("'--no-env-file'")
+    expect(serverRunner).toContain('createSandboxedTestEnvironment')
+    expect(serverRunner).toContain('evidenceComplete')
+    expect(serverRunner).toContain('reportedFiles === 1')
+    expect(serverRunner).toContain('passedTests + failedTests > 0')
+    expect(testEnvironment).toContain('CLAUDE_CONFIG_DIR:')
+    expect(testEnvironment).toContain("BUN_OPTIONS: '--no-env-file'")
+    expect(coverageRunner).toContain('TEST_FILE_PATTERN')
+    expect(coverageRunner).toContain("'--no-env-file'")
+    expect(coverageRunner).toContain('createSandboxedTestEnvironment')
+    expect(coverageRunner).toContain("correctness is enforced by check:server's per-file sandboxed test processes")
+    expect(coverageRunner).toContain('rootCoverageAvailable')
+    expect(coverageRunner).toContain('rootTestDiscoveryComplete')
+    expect(coverageRunner).toContain("id: 'root-runtime'")
+    for (const contractRunner of [providerRunner, chatRunner]) {
+      expect(contractRunner).toContain("'--no-env-file'")
+      expect(contractRunner).toContain('createSandboxedTestEnvironment')
+    }
+  })
+
   test('keeps general AI coding tools pointed at the same quality bar', () => {
     const instructions = readFileSync('.github/copilot-instructions.md', 'utf8')
 

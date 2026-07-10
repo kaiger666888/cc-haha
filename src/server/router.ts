@@ -13,7 +13,6 @@ import { handleConversationsApi } from './api/conversations.js'
 import { handleTeamsApi } from './api/teams.js'
 import { handleFilesystemRoute } from './api/filesystem.js'
 import { handleProvidersApi } from './api/providers.js'
-import { handleAdaptersApi } from './api/adapters.js'
 import { handlePluginsApi } from './api/plugins.js'
 import { handleSkillsApi } from './api/skills.js'
 import { handleMarketApi } from './api/market.js'
@@ -85,8 +84,12 @@ export async function handleApiRequest(req: Request, url: URL): Promise<Response
     case 'haha-openai-oauth':
       return handleHahaOpenAIOAuthApi(req, url, segments)
 
-    case 'adapters':
+    case 'adapters': {
+      // Adapter protocols pull in platform SDKs that are unnecessary for the
+      // core server path. Load them only when this API is actually used.
+      const { handleAdaptersApi } = await import('./api/adapters.js')
       return handleAdaptersApi(req, url, segments)
+    }
 
     case 'skills':
       return handleSkillsApi(req, url, segments)

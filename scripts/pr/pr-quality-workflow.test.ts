@@ -71,6 +71,10 @@ describe('PR quality workflow', () => {
     expect(workflow).not.toContain('QUALITY_GATE_PROVIDER_API_KEY')
     expect(workflow).not.toContain('secrets.')
     expect(workflow).not.toContain('pull_request_target')
+    expect(workflow.match(/uses: actions\/checkout@v4/g)?.length).toBeGreaterThan(0)
+    expect(workflow.match(/persist-credentials: false/g)?.length).toBe(
+      workflow.match(/uses: actions\/checkout@v4/g)?.length,
+    )
   })
 
   test('exposes a single required gate job for branch protection', () => {

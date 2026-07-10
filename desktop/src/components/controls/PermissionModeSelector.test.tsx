@@ -287,4 +287,123 @@ describe('PermissionModeSelector', () => {
 
     expect(screen.queryByRole('dialog', { name: 'Enable bypass mode' })).not.toBeInTheDocument()
   })
+
+  it('rejects a stale menu action when the turn starts before click dispatch', () => {
+    const setSessionPermissionMode = vi.fn()
+    useChatStore.setState({
+      setSessionPermissionMode,
+      sessions: {
+        'current-tab': makeChatSession('idle'),
+      },
+    })
+    useTabStore.setState({
+      activeTabId: 'current-tab',
+      tabs: [{ sessionId: 'current-tab', title: 'Current', type: 'session', status: 'idle' }],
+    })
+
+    render(<PermissionModeSelector />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    const menuItem = screen.getByRole('menuitem', { name: /Auto accept edits/ })
+
+    act(() => {
+      useChatStore.setState({
+        sessions: {
+          'current-tab': makeChatSession('thinking'),
+        },
+      })
+      menuItem.click()
+    })
+
+    expect(setSessionPermissionMode).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale bypass confirmation when the turn starts before click dispatch', () => {
+    const setSessionPermissionMode = vi.fn()
+    useChatStore.setState({
+      setSessionPermissionMode,
+      sessions: {
+        'current-tab': makeChatSession('idle'),
+      },
+    })
+    useTabStore.setState({
+      activeTabId: 'current-tab',
+      tabs: [{ sessionId: 'current-tab', title: 'Current', type: 'session', status: 'idle' }],
+    })
+
+    render(<PermissionModeSelector />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Bypass permissions/ }))
+    const confirmButton = screen.getByRole('button', { name: 'Enable bypass' })
+
+    act(() => {
+      useChatStore.setState({
+        sessions: {
+          'current-tab': makeChatSession('tool_executing'),
+        },
+      })
+      confirmButton.click()
+    })
+
+    expect(setSessionPermissionMode).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale menu action after the active tab changes', () => {
+    const setSessionPermissionMode = vi.fn()
+    useChatStore.setState({
+      setSessionPermissionMode,
+      sessions: {
+        'current-tab': makeChatSession('idle'),
+        'next-tab': makeChatSession('idle'),
+      },
+    })
+    useTabStore.setState({
+      activeTabId: 'current-tab',
+      tabs: [{ sessionId: 'current-tab', title: 'Current', type: 'session', status: 'idle' }],
+    })
+
+    render(<PermissionModeSelector />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    const menuItem = screen.getByRole('menuitem', { name: /Auto accept edits/ })
+
+    act(() => {
+      useTabStore.setState({
+        activeTabId: 'next-tab',
+        tabs: [{ sessionId: 'next-tab', title: 'Next', type: 'session', status: 'idle' }],
+      })
+      menuItem.click()
+    })
+
+    expect(setSessionPermissionMode).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale bypass confirmation after the active tab changes', () => {
+    const setSessionPermissionMode = vi.fn()
+    useChatStore.setState({
+      setSessionPermissionMode,
+      sessions: {
+        'current-tab': makeChatSession('idle'),
+        'next-tab': makeChatSession('idle'),
+      },
+    })
+    useTabStore.setState({
+      activeTabId: 'current-tab',
+      tabs: [{ sessionId: 'current-tab', title: 'Current', type: 'session', status: 'idle' }],
+    })
+
+    render(<PermissionModeSelector />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Bypass permissions/ }))
+    const confirmButton = screen.getByRole('button', { name: 'Enable bypass' })
+
+    act(() => {
+      useTabStore.setState({
+        activeTabId: 'next-tab',
+        tabs: [{ sessionId: 'next-tab', title: 'Next', type: 'session', status: 'idle' }],
+      })
+      confirmButton.click()
+    })
+
+    expect(setSessionPermissionMode).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'Enable bypass mode' })).not.toBeInTheDocument()
+  })
 })

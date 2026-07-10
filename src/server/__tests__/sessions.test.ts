@@ -1980,11 +1980,12 @@ describe('SessionService', () => {
   })
 
   it('should default to the user home directory when workDir is missing', async () => {
-    const { sessionId } = await service.createSession('')
+    const { sessionId, workDir } = await service.createSession('')
+    expect(workDir).toBe(await fs.realpath(os.homedir()))
     const filePath = path.join(
       tmpDir,
       'projects',
-      sanitizePath(os.homedir()),
+      sanitizePath(workDir),
       `${sessionId}.jsonl`,
     )
 
