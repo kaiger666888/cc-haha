@@ -949,6 +949,7 @@ const VIRTUAL_MAX_ITEM_HEIGHT = 24_000
 // Windows WebView2 can report 1px oscillations for live chat content; don't
 // convert those into bottom-scroll corrections.
 const CONTENT_RESIZE_FOLLOW_MIN_DELTA_PX = 2
+const USER_SCROLL_INTENT_WINDOW_MS = 500
 const CONVERSATION_NAVIGATION_MIN_ITEMS = 4
 const STREAMING_ASSISTANT_NAVIGATION_KEY = 'streaming-assistant-message'
 const EMPTY_MESSAGES: UIMessage[] = []
@@ -1432,14 +1433,19 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
   const activeThinkingId = sessionState?.activeThinkingId ?? null
   const agentTaskNotifications = sessionState?.agentTaskNotifications ?? EMPTY_AGENT_TASK_NOTIFICATIONS
   const hasRunningBackgroundTasks = hasAnyRunningBackgroundTasks(sessionState?.backgroundAgentTasks)
+  const pendingPermissions = listPendingPermissions(sessionState)
   const activeAskUserQuestionToolUseId =
-    listPendingPermissions(sessionState)
+    pendingPermissions
       .find((permission) => permission.toolName === 'AskUserQuestion')?.toolUseId ?? null
+  const hasPendingPermissionCard = pendingPermissions.some(
+    (permission) => permission.toolName !== 'AskUserQuestion',
+  )
   const shouldFollowContentResize =
     streamingText.trim().length > 0 ||
     chatState === 'streaming' ||
     chatState === 'compacting' ||
     chatState === 'tool_executing' ||
+    hasPendingPermissionCard ||
     (chatState === 'thinking' && Boolean(activeThinkingId))
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const scrollContentRef = useRef<HTMLDivElement>(null)
@@ -1458,6 +1464,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
   const isProgrammaticScrollingRef = useRef(false)
   const ignoreProgrammaticScrollUntilRef = useRef(0)
   const ignoreProgrammaticScrollTopRef = useRef<number | null>(null)
+  const userScrollIntentUntilRef = useRef(0)
   const lastSessionIdRef = useRef<string | null | undefined>(resolvedSessionId)
   const lastTailMessageIdBySessionRef = useRef(new Map<string, string | null>())
   const t = useTranslation()
@@ -1570,6 +1577,9 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     if (previousHeight !== undefined && Math.abs(previousHeight - measuredHeight) < 1) return
 
     virtualItemHeightsRef.current.set(itemKey, measuredHeight)
+    if (hasPendingPermissionCard && shouldAutoScrollRef.current) {
+      scrollToBottom('auto')
+    }
 
     if (typeof requestAnimationFrame === 'undefined') {
       pendingMeasuredHeightsRef.current = true
@@ -1584,7 +1594,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
         flushMeasuredHeightVersion()
       })
     }
-  }, [flushMeasuredHeightVersion])
+  }, [flushMeasuredHeightVersion, hasPendingPermissionCard, scrollToBottom])
 
   const updateAutoScrollState = useCallback(() => {
     // Ignore scroll events triggered by our own programmatic scrolling to
@@ -1606,13 +1616,52 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     }
     syncVirtualViewportFromContainer(container)
     const isAtBottom = isNearScrollBottom(container)
+    const isPermissionLayoutShift =
+      hasPendingPermissionCard &&
+      shouldAutoScrollRef.current &&
+      !isAtBottom &&
+      performance.now() >= userScrollIntentUntilRef.current
+    if (isPermissionLayoutShift) return
+
     shouldAutoScrollRef.current = isAtBottom
     setShowJumpToLatest(!isAtBottom)
 
     if (resolvedSessionId) {
       rememberSessionScroll(resolvedSessionId, container)
     }
-  }, [resolvedSessionId, syncVirtualViewportFromContainer])
+  }, [hasPendingPermissionCard, resolvedSessionId, syncVirtualViewportFromContainer])
+
+  const markUserScrollIntent = useCallback(() => {
+    userScrollIntentUntilRef.current = performance.now() + USER_SCROLL_INTENT_WINDOW_MS
+  }, [])
+
+  const handleWheelScrollIntent = useCallback((event: { deltaY: number }) => {
+    markUserScrollIntent()
+    if (event.deltaY < 0) {
+      shouldAutoScrollRef.current = false
+      setShowJumpToLatest(true)
+    }
+  }, [markUserScrollIntent])
+
+  const handleKeyDownScrollIntent = useCallback((event: { key: string; shiftKey: boolean }) => {
+    const isUpwardScrollKey =
+      event.key === 'ArrowUp' ||
+      event.key === 'PageUp' ||
+      event.key === 'Home' ||
+      (event.key === ' ' && event.shiftKey)
+    const isScrollKey = isUpwardScrollKey ||
+      event.key === 'ArrowDown' ||
+      event.key === 'PageDown' ||
+      event.key === 'End' ||
+      event.key === ' '
+    if (!isScrollKey) return
+
+    markUserScrollIntent()
+    if (isUpwardScrollKey) {
+      shouldAutoScrollRef.current = false
+      setShowJumpToLatest(true)
+    }
+  }, [markUserScrollIntent])
 
   useLayoutEffect(() => {
     if (lastSessionIdRef.current !== resolvedSessionId) {
@@ -2187,6 +2236,10 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
       <div
         ref={scrollContainerRef}
         onScroll={updateAutoScrollState}
+        onWheel={handleWheelScrollIntent}
+        onPointerDown={markUserScrollIntent}
+        onTouchStart={markUserScrollIntent}
+        onKeyDown={handleKeyDownScrollIntent}
         className={`${CHAT_SCROLL_AREA_CLASS} h-full overflow-y-auto ${compact ? 'px-3 py-3 pb-5' : 'px-4 py-4'}`}
       >
         <div

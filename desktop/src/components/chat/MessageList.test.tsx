@@ -3093,6 +3093,241 @@ describe('MessageList nested tool calls', () => {
     expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull()
   })
 
+  it('keeps a pending file permission pinned when its preview grows after render', async () => {
+    const observers: Array<{
+      callback: ResizeObserverCallback
+      targets: Element[]
+    }> = []
+    class TestResizeObserver {
+      targets: Element[] = []
+      observe = vi.fn((target: Element) => {
+        this.targets.push(target)
+      })
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+
+      constructor(callback: ResizeObserverCallback) {
+        observers.push({ callback, targets: this.targets })
+      }
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+
+    const pendingPermission = {
+      requestId: 'permission-write-memory',
+      toolName: 'Write',
+      input: {
+        file_path: '/tmp/MEMORY.md',
+        content: Array.from({ length: 80 }, (_, index) => `Memory line ${index}`).join('\n'),
+      },
+    }
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          chatState: 'permission_pending',
+          pendingPermission,
+          pendingPermissions: {
+            [pendingPermission.requestId]: pendingPermission,
+          },
+          messages: [
+            ...Array.from({ length: 130 }, (_, index) => ({
+              id: `assistant-history-${index}`,
+              type: 'assistant_text' as const,
+              content: `History line ${index}`,
+              timestamp: index,
+            })),
+            {
+              id: 'permission-write-memory-message',
+              type: 'permission_request',
+              requestId: pendingPermission.requestId,
+              toolName: pendingPermission.toolName,
+              input: pendingPermission.input,
+              timestamp: 131,
+            },
+          ],
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scroller = container.querySelector('.chat-scroll-area') as HTMLDivElement
+    const scrollContent = scroller.firstElementChild as HTMLElement
+    let scrollTop = 15000
+    let scrollHeight = 15521
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => scrollHeight,
+    })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 521 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => {
+        scrollTop = value
+      },
+    })
+
+    await waitForProgrammaticScrollReset()
+    fireEvent.scroll(scroller)
+    const allowButton = await screen.findByRole('button', { name: 'Allow: /tmp/MEMORY.md' })
+
+    const contentObserver = observers.find(({ targets }) => targets.includes(scrollContent))
+    expect(contentObserver).toBeTruthy()
+    const permissionItem = allowButton.closest('[data-virtual-message-item]') as HTMLElement
+    expect(permissionItem).toBeTruthy()
+    const permissionItemObserver = observers.find(({ targets }) => targets.includes(permissionItem))
+    expect(permissionItemObserver).toBeTruthy()
+
+    scrollHeight = 15717
+    fireEvent.scroll(scroller)
+    act(() => {
+      permissionItemObserver?.callback([{
+        contentRect: { height: 520 },
+        target: permissionItem,
+      } as unknown as ResizeObserverEntry], {} as ResizeObserver)
+    })
+    act(() => {
+      contentObserver?.callback([{
+        contentRect: { height: 15717 },
+        target: scrollContent,
+      } as unknown as ResizeObserverEntry], {} as ResizeObserver)
+    })
+
+    expect(scrollTop).toBe(15196)
+    expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull()
+  })
+
+  it('does not follow resize for stale permission state without a pending file permission', async () => {
+    let resizeCallback: ResizeObserverCallback | null = null
+    class TestResizeObserver {
+      observe = vi.fn()
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback
+      }
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          chatState: 'permission_pending',
+          messages: [{
+            id: 'assistant-restored',
+            type: 'assistant_text',
+            content: 'Restored completed response',
+            timestamp: 1,
+          }],
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scroller = container.querySelector('.chat-scroll-area') as HTMLDivElement
+    let scrollTop = 600
+    let scrollHeight = 1000
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => scrollHeight,
+    })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => {
+        scrollTop = value
+      },
+    })
+
+    await waitForProgrammaticScrollReset()
+    fireEvent.scroll(scroller)
+
+    scrollHeight = 1400
+    act(() => {
+      resizeCallback?.([{
+        contentRect: { height: 1400 },
+      } as ResizeObserverEntry], {} as ResizeObserver)
+    })
+
+    expect(scrollTop).toBe(600)
+  })
+
+  it('preserves upward wheel and keyboard intent while a pending file permission preview resizes', async () => {
+    let resizeCallback: ResizeObserverCallback | null = null
+    class TestResizeObserver {
+      observe = vi.fn()
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback
+      }
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+
+    const pendingPermission = {
+      requestId: 'permission-write-memory-wheel',
+      toolName: 'Write',
+      input: {
+        file_path: '/tmp/MEMORY.md',
+        content: 'Remember this preference',
+      },
+    }
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          chatState: 'permission_pending',
+          pendingPermission,
+          pendingPermissions: {
+            [pendingPermission.requestId]: pendingPermission,
+          },
+          messages: [{
+            id: 'permission-write-memory-wheel-message',
+            type: 'permission_request',
+            requestId: pendingPermission.requestId,
+            toolName: pendingPermission.toolName,
+            input: pendingPermission.input,
+            timestamp: 1,
+          }],
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scroller = container.querySelector('.chat-scroll-area') as HTMLDivElement
+    let scrollTop = 600
+    let scrollHeight = 1000
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => scrollHeight,
+    })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => {
+        scrollTop = value
+      },
+    })
+
+    await waitForProgrammaticScrollReset()
+    fireEvent.scroll(scroller)
+
+    fireEvent.wheel(scroller, { deltaY: -120 })
+    fireEvent.keyDown(scroller, { key: 'PageUp', shiftKey: false })
+    fireEvent.keyDown(scroller, { key: 'ArrowDown', shiftKey: false })
+    scrollTop = 300
+    scrollHeight = 1400
+    act(() => {
+      resizeCallback?.([{
+        contentRect: { height: 1400 },
+      } as ResizeObserverEntry], {} as ResizeObserver)
+    })
+
+    expect(scrollTop).toBe(300)
+  })
+
   it('lets the user drag away from active thinking output before the programmatic scroll settles', async () => {
     let resizeCallback: ResizeObserverCallback | null = null
     class TestResizeObserver {
