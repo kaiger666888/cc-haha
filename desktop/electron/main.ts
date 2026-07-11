@@ -20,10 +20,8 @@ import { ElectronTerminalService, type TerminalSpawnInput } from './services/ter
 import { ElectronPreviewService, type PreviewBounds } from './services/preview'
 import {
   applyStartupPortableMode,
-  detectPortableDir,
   getAppMode,
   setAppMode,
-  type PortableDetection,
 } from './services/appMode'
 import { installMacOsChromiumKeychainPromptGuard } from './services/keychain'
 import { applyWindowsAppUserModelId } from './services/appIdentity'
@@ -331,8 +329,7 @@ function registerIpcHandlers() {
   registerHandler(ELECTRON_IPC_CHANNELS.previewMessage, (event, payload) => getPreviewService().message(payload, event.sender))
   registerHandler(ELECTRON_IPC_CHANNELS.appModeGet, () => getAppMode(app))
   registerHandler(ELECTRON_IPC_CHANNELS.appModeSet, (_event, payload) => setAppMode(app, payload as Parameters<typeof setAppMode>[1]))
-  registerHandler(ELECTRON_IPC_CHANNELS.appModeDetectPortableDir, () => detectPortableDir(app) as PortableDetection)
-  registerHandler(ELECTRON_IPC_CHANNELS.appModePrepareRestart, () => getServerRuntime().stopAll())
+  registerHandler(ELECTRON_IPC_CHANNELS.appModePrepareRestart, () => getServerRuntime().stopAll(true))
   registerHandler(ELECTRON_IPC_CHANNELS.appModeRestart, () => {
     isQuitting = true
     app.relaunch()

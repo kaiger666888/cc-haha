@@ -136,7 +136,6 @@ export type AppMode = 'default' | 'portable'
 export type AppModeConfig = {
   mode: AppMode
   portableDir: string | null
-  defaultPortableDir: string | null
   activeConfigDir?: string | null
   configDirSource?: 'system' | 'environment' | 'portable'
 }

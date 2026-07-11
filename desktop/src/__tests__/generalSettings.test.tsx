@@ -294,8 +294,7 @@ describe('Settings > General tab', () => {
       appMode: {
         mode: 'default',
         portableDir: null,
-        defaultPortableDir: '/Applications/Claude Code Haha/CLAUDE_CONFIG_DIR',
-        activeConfigDir: null,
+        activeConfigDir: '/Users/test/.claude',
         configDirSource: 'system',
       },
       appModeRequiresRestart: false,
@@ -304,9 +303,8 @@ describe('Settings > General tab', () => {
         useSettingsStore.setState({
           appMode: {
             mode,
-            portableDir: mode === 'portable' ? portableDir ?? '/Applications/Claude Code Haha/CLAUDE_CONFIG_DIR' : null,
-            defaultPortableDir: '/Applications/Claude Code Haha/CLAUDE_CONFIG_DIR',
-            activeConfigDir: mode === 'portable' ? portableDir ?? '/Applications/Claude Code Haha/CLAUDE_CONFIG_DIR' : null,
+            portableDir: mode === 'portable' ? portableDir ?? null : null,
+            activeConfigDir: mode === 'portable' ? portableDir ?? null : '/Users/test/.claude',
             configDirSource: mode === 'portable' ? 'portable' : 'system',
           },
           appModeRequiresRestart: true,
@@ -514,17 +512,17 @@ describe('Settings > General tab', () => {
     const storageHeading = screen.getByRole('heading', { name: 'Data Storage Location' })
 
     expect((webSearchHeading.compareDocumentPosition(storageHeading) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
-    expect(screen.getByText(/Switching directories does not migrate existing data/)).toBeInTheDocument()
+    expect(screen.getByText(/Windows, upgrades recover verified legacy app-adjacent data/)).toBeInTheDocument()
   })
 
-  it('lets desktop users choose a portable data directory and relaunch immediately', async () => {
+  it('lets desktop users choose a custom data directory and relaunch immediately', async () => {
     render(<Settings />)
 
     fireEvent.click(screen.getByText('General'))
     fireEvent.click(screen.getByRole('button', { name: 'Choose Folder' }))
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Portable data directory')).toHaveValue('/Users/test/cc-haha-data')
+      expect(screen.getByLabelText('Custom data directory')).toHaveValue('/Users/test/cc-haha-data')
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Use This Folder and Restart' }))
@@ -538,12 +536,11 @@ describe('Settings > General tab', () => {
     })
   })
 
-  it('switches back to the system directory without deleting portable data', async () => {
+  it('switches back to ~/.claude without deleting custom data', async () => {
     useSettingsStore.setState({
       appMode: {
         mode: 'portable',
         portableDir: '/Users/test/cc-haha-data',
-        defaultPortableDir: '/Applications/Claude Code Haha/CLAUDE_CONFIG_DIR',
         activeConfigDir: '/Users/test/cc-haha-data',
         configDirSource: 'portable',
       },
@@ -554,7 +551,7 @@ describe('Settings > General tab', () => {
     fireEvent.click(screen.getByText('General'))
     fireEvent.click(screen.getByRole('button', { name: /Use system directory/ }))
 
-    expect(screen.getByText(/Data in the portable directory is not deleted/)).toBeInTheDocument()
+    expect(screen.getByText(/Data in the custom directory is not deleted/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Save and Restart' }))
 
     await waitFor(() => {
@@ -564,19 +561,20 @@ describe('Settings > General tab', () => {
     })
   })
 
-  it('validates portable directory input and lets users reset to the app-side folder', async () => {
+  it('requires an explicit custom directory and exposes no third default-custom choice', async () => {
     render(<Settings />)
 
     fireEvent.click(screen.getByText('General'))
-    const input = screen.getByLabelText('Portable data directory')
+    const input = screen.getByLabelText('Custom data directory')
 
     fireEvent.change(input, { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: 'Use This Folder and Restart' }))
-    expect(screen.getByText('Choose or enter a portable data directory first.')).toBeInTheDocument()
+    expect(screen.getByText('Choose or enter a custom data directory first.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /default.*data folder/i })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Use the default portable folder beside the app' }))
-    expect(input).toHaveValue('/Applications/Claude Code Haha/CLAUDE_CONFIG_DIR')
-    expect(screen.queryByText('Choose or enter a portable data directory first.')).not.toBeInTheDocument()
+    fireEvent.change(input, { target: { value: '/Users/test/custom-data' } })
+    expect(input).toHaveValue('/Users/test/custom-data')
+    expect(screen.queryByText('Choose or enter a custom data directory first.')).not.toBeInTheDocument()
   })
 
   it('shows folder picker failures as an inline storage error', async () => {
@@ -595,7 +593,6 @@ describe('Settings > General tab', () => {
       appMode: {
         mode: 'portable',
         portableDir: '/env/claude-data',
-        defaultPortableDir: '/Applications/Claude Code Haha/CLAUDE_CONFIG_DIR',
         activeConfigDir: '/env/claude-data',
         configDirSource: 'environment',
       },
@@ -609,7 +606,7 @@ describe('Settings > General tab', () => {
     fireEvent.click(screen.getByRole('button', { name: /Use system directory/ }))
     expect(screen.getByText(/Remove it from the launch environment before switching back/)).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Portable data directory'), { target: { value: '/other/data' } })
+    fireEvent.change(screen.getByLabelText('Custom data directory'), { target: { value: '/other/data' } })
     fireEvent.click(screen.getByRole('button', { name: 'Use This Folder and Restart' }))
     expect(screen.queryByText('Switch data storage location?')).not.toBeInTheDocument()
     expect(screen.getByText(/Remove it from the launch environment before switching back/)).toBeInTheDocument()
@@ -619,6 +616,7 @@ describe('Settings > General tab', () => {
     render(<Settings />)
 
     fireEvent.click(screen.getByText('General'))
+    fireEvent.change(screen.getByLabelText('Custom data directory'), { target: { value: '/Users/test/custom-data' } })
     fireEvent.click(screen.getByRole('button', { name: 'Use This Folder and Restart' }))
     expect(screen.getByText('Switch data storage location?')).toBeInTheDocument()
 
@@ -636,6 +634,7 @@ describe('Settings > General tab', () => {
     render(<Settings />)
 
     fireEvent.click(screen.getByText('General'))
+    fireEvent.change(screen.getByLabelText('Custom data directory'), { target: { value: '/Users/test/custom-data' } })
     fireEvent.click(screen.getByRole('button', { name: 'Use This Folder and Restart' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save and Restart' }))
 

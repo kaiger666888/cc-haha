@@ -2131,8 +2131,8 @@ export function GeneralSettings() {
   }, [fetchAppMode])
 
   useEffect(() => {
-    setPortableDirDraft(appMode.portableDir ?? appMode.defaultPortableDir ?? '')
-  }, [appMode.defaultPortableDir, appMode.portableDir])
+    setPortableDirDraft(appMode.portableDir ?? '')
+  }, [appMode.portableDir])
 
   const LANGUAGES: Array<{ value: Locale; label: string }> = [
     { value: 'en', label: 'English' },
@@ -3197,17 +3197,7 @@ export function GeneralSettings() {
                   </Button>
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-[var(--color-brand)] hover:underline"
-                    onClick={() => {
-                      setPortableDirDraft(appMode.defaultPortableDir ?? '')
-                      setModeError(null)
-                    }}
-                  >
-                    {t('settings.general.storageUseDefaultPortableDir')}
-                  </button>
+                <div className="mt-3 flex justify-end">
                   <Button
                     type="button"
                     size="sm"

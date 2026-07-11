@@ -208,7 +208,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   appMode: {
     mode: 'default',
     portableDir: null,
-    defaultPortableDir: null,
     activeConfigDir: null,
     configDirSource: 'system',
   },
@@ -583,16 +582,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const host = getDesktopHost()
     if (!host.isDesktop) return
     const prev = get().appMode
+    const selectedCustomDir = mode === 'portable' ? portableDir?.trim() || null : null
+    if (mode === 'portable' && !selectedCustomDir) {
+      throw new Error('Choose an absolute custom data directory')
+    }
     const newMode: AppModeConfig = {
       ...prev,
       mode,
-      portableDir: mode === 'portable'
-        ? portableDir ?? prev.defaultPortableDir ?? prev.portableDir
-        : null,
-      activeConfigDir: mode === 'portable'
-        ? portableDir ?? prev.defaultPortableDir ?? prev.portableDir
-        : null,
-      configDirSource: mode === 'portable' ? 'portable' : 'system',
+      portableDir: selectedCustomDir,
     }
     set({ appMode: newMode, appModeRequiresRestart: true })
     try {
