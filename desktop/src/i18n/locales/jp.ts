@@ -1070,7 +1070,7 @@ export const jp: Record<TranslationKey, string> = {
   'settings.general.h5AccessCurrentPortUnknown': '自動',
   'settings.general.h5AccessFixedPort': '固定ポート',
   'settings.general.h5AccessFixedPortPlaceholder': '自動',
-  'settings.general.h5AccessFixedPortInvalid': 'ポートは 1024〜65535 の整数で指定してください。',
+  'settings.general.h5AccessFixedPortInvalid': 'ポートは 1024〜65535 のブラウザーで使用可能な整数で指定してください。',
   'settings.general.h5AccessFixedPortHint': '固定ポート未設定の場合は前回のポートを自動的に再利用します。リバースプロキシなど安定したポートが必要な場合は固定を推奨します。変更はアプリ再起動後に反映されます。',
   'settings.general.h5AccessFixedPortRestartNote': '固定ポート {fixedPort} はアプリ再起動後に有効になります。現在は {activePort} で稼働中です。',
   'settings.general.h5AccessDisconnectGrace': '切断後の保持（秒）',

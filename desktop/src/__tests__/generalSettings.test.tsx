@@ -1125,7 +1125,31 @@ describe('Settings > General tab', () => {
       target: { value: '99' },
     })
 
-    expect(within(section).getByText('Port must be an integer between 1024 and 65535.')).toBeInTheDocument()
+    expect(within(section).getByText('Port must be a browser-safe integer between 1024 and 65535.')).toBeInTheDocument()
+    expect(within(section).getByRole('button', { name: 'Save H5 settings' })).toBeDisabled()
+    expect(useSettingsStore.getState().updateH5AccessSettings).not.toHaveBeenCalled()
+  })
+
+  it('rejects a browser-blocked fixed port before saving', () => {
+    useSettingsStore.setState({
+      h5Access: {
+        enabled: true,
+        token: 'h5_persisted_token',
+        tokenPreview: 'h5_pers...oken',
+        allowedOrigins: [],
+        publicBaseUrl: 'http://192.168.0.102:54064',
+        fixedPort: null,
+        disconnectGraceSeconds: null,
+      },
+    })
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('H5 Access'))
+    const section = screen.getByRole('region', { name: 'H5 Access' })
+    fireEvent.change(within(section).getByLabelText('Fixed port'), {
+      target: { value: '5061' },
+    })
+
     expect(within(section).getByRole('button', { name: 'Save H5 settings' })).toBeDisabled()
     expect(useSettingsStore.getState().updateH5AccessSettings).not.toHaveBeenCalled()
   })

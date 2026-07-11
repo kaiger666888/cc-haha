@@ -63,6 +63,7 @@ import { formatBytes } from '../lib/formatBytes'
 import { isDesktopRuntime } from '../lib/desktopRuntime'
 import { getDesktopHost } from '../lib/desktopHost'
 import { publicAssetPath } from '../lib/publicAsset'
+import { isBrowserSafePort } from '../lib/browserSafePort'
 import {
   getDesktopNotificationPermission,
   notifyDesktop,
@@ -165,7 +166,7 @@ function parseH5FixedPortDraft(draft: string): number | null | 'invalid' {
   if (!trimmed) return null
   if (!/^\d{1,5}$/.test(trimmed)) return 'invalid'
   const port = Number(trimmed)
-  return port >= 1024 && port <= 65535 ? port : 'invalid'
+  return port >= 1024 && port <= 65535 && isBrowserSafePort(port) ? port : 'invalid'
 }
 
 // Mirrors the server-side disconnect grace range (h5AccessService

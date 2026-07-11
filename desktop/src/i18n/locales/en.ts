@@ -1068,7 +1068,7 @@ export const en = {
   'settings.general.h5AccessCurrentPortUnknown': 'Auto',
   'settings.general.h5AccessFixedPort': 'Fixed port',
   'settings.general.h5AccessFixedPortPlaceholder': 'Auto',
-  'settings.general.h5AccessFixedPortInvalid': 'Port must be an integer between 1024 and 65535.',
+  'settings.general.h5AccessFixedPortInvalid': 'Port must be a browser-safe integer between 1024 and 65535.',
   'settings.general.h5AccessFixedPortHint': 'Without a fixed port the previous port is reused automatically; pin one for reverse proxies and other setups that need a stable port. Port changes apply after restarting the app.',
   'settings.general.h5AccessFixedPortRestartNote': 'Fixed port {fixedPort} takes effect after restarting the app; currently still running on {activePort}.',
   'settings.general.h5AccessDisconnectGrace': 'Disconnect grace (sec)',

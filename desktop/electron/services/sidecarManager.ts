@@ -4,6 +4,7 @@ import type { Readable } from 'node:stream'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { isBrowserSafePort } from '../../src/lib/browserSafePort'
 
 export const SERVER_BIND_HOST = '0.0.0.0'
 export const SERVER_CONTROL_HOST = '127.0.0.1'
@@ -15,6 +16,7 @@ export const SERVER_STATE_FILE = 'desktop-server-state.json'
 // Mirrors the server-side fixedPort range (h5AccessService MIN/MAX_FIXED_PORT).
 const MIN_FIXED_PORT = 1024
 const MAX_FIXED_PORT = 65535
+const MAX_PORT_RESERVATION_ATTEMPTS = 128
 
 export type SidecarChild = ChildProcessByStdio<null, Readable, Readable>
 
@@ -58,7 +60,11 @@ export function httpToWebSocketUrl(serverHttpUrl: string): string {
   return serverHttpUrl
 }
 
-export async function reserveLocalPort(bindHost = SERVER_BIND_HOST): Promise<number> {
+export type ReserveLocalPortDeps = {
+  reserveCandidate?: (bindHost: string) => Promise<number>
+}
+
+async function reserveLocalPortCandidate(bindHost: string): Promise<number> {
   return await new Promise((resolve, reject) => {
     const server = net.createServer()
     server.once('error', error => reject(error))
@@ -73,6 +79,19 @@ export async function reserveLocalPort(bindHost = SERVER_BIND_HOST): Promise<num
       })
     })
   })
+}
+
+export async function reserveLocalPort(
+  bindHost = SERVER_BIND_HOST,
+  deps: ReserveLocalPortDeps = {},
+): Promise<number> {
+  const reserveCandidate = deps.reserveCandidate ?? reserveLocalPortCandidate
+  for (let attempt = 0; attempt < MAX_PORT_RESERVATION_ATTEMPTS; attempt++) {
+    const port = await reserveCandidate(bindHost)
+    if (isBrowserSafePort(port)) return port
+    console.error(`[desktop] OS assigned browser-blocked server port ${port}; retrying`)
+  }
+  throw new Error('Could not reserve a browser-safe local port')
 }
 
 function canBindPort(bindHost: string, port: number): Promise<boolean> {
@@ -95,7 +114,14 @@ export async function reserveServerPort(
   preferred: number[],
 ): Promise<number> {
   for (const port of preferred) {
-    if (!Number.isInteger(port) || port <= 0 || port > 65535) continue
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      console.error(`[desktop] preferred server port ${port} is invalid; skipping`)
+      continue
+    }
+    if (!isBrowserSafePort(port)) {
+      console.error(`[desktop] preferred server port ${port} is blocked by browser fetch; skipping`)
+      continue
+    }
     if (await canBindPort(bindHost, port)) return port
     console.error(`[desktop] preferred server port ${port} unavailable`)
   }
@@ -119,7 +145,7 @@ export function parseH5FixedPort(contents: string): number | null {
   if (!h5Access || typeof h5Access !== 'object') return null
   const port = (h5Access as Record<string, unknown>).fixedPort
   if (typeof port !== 'number' || !Number.isInteger(port)) return null
-  return port >= MIN_FIXED_PORT && port <= MAX_FIXED_PORT ? port : null
+  return port >= MIN_FIXED_PORT && port <= MAX_FIXED_PORT && isBrowserSafePort(port) ? port : null
 }
 
 export function readH5FixedPort(env: NodeJS.ProcessEnv = process.env): number | null {
@@ -138,7 +164,7 @@ export function readLastServerPort(env: NodeJS.ProcessEnv = process.env): number
     if (!state || typeof state !== 'object') return null
     const port = (state as Record<string, unknown>).lastPort
     if (typeof port !== 'number' || !Number.isInteger(port)) return null
-    return port > 0 && port <= 65535 ? port : null
+    return isBrowserSafePort(port) ? port : null
   } catch {
     return null
   }

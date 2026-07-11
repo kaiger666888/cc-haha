@@ -1070,7 +1070,7 @@ export const zh: Record<TranslationKey, string> = {
   'settings.general.h5AccessCurrentPortUnknown': '自動',
   'settings.general.h5AccessFixedPort': '固定埠',
   'settings.general.h5AccessFixedPortPlaceholder': '自動',
-  'settings.general.h5AccessFixedPortInvalid': '埠需為 1024-65535 之間的整數。',
+  'settings.general.h5AccessFixedPortInvalid': '埠需為 1024-65535 之間且瀏覽器允許存取的整數。',
   'settings.general.h5AccessFixedPortHint': '不設固定埠時會自動沿用上次的埠；反向代理等需要穩定埠的場景建議固定。修改埠後重啟應用程式生效。',
   'settings.general.h5AccessFixedPortRestartNote': '固定埠 {fixedPort} 將在重啟應用程式後生效，目前仍執行在 {activePort}。',
   'settings.general.h5AccessDisconnectGrace': '斷線保活（秒）',

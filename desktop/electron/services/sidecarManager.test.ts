@@ -20,6 +20,7 @@ import {
   reserveLocalPort,
   reserveServerPort,
   resolveHostTriple,
+  SERVER_STATE_FILE,
   spawnSidecar,
   waitForServer,
   windowsPowerShellOverride,
@@ -225,8 +226,15 @@ describe('Electron sidecar manager', () => {
     expect(windowsPowerShellOverride('powershell.exe', 'linux')).toBeNull()
   })
 
-  it('parses only in-range integer h5Access.fixedPort values', () => {
+  it('parses only browser-safe in-range integer h5Access.fixedPort values', () => {
     expect(parseH5FixedPort('{"h5Access":{"fixedPort":28670}}')).toBe(28670)
+    for (const port of [
+      1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000,
+      6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+    ]) {
+      expect(parseH5FixedPort(`{"h5Access":{"fixedPort":${port}}}`)).toBeNull()
+    }
+    expect(parseH5FixedPort('{"h5Access":{"fixedPort":5062}}')).toBe(5062)
     expect(parseH5FixedPort('{"h5Access":{"fixedPort":80}}')).toBeNull()
     expect(parseH5FixedPort('{"h5Access":{"fixedPort":70000}}')).toBeNull()
     expect(parseH5FixedPort('{"h5Access":{"fixedPort":"3456"}}')).toBeNull()
@@ -241,6 +249,15 @@ describe('Electron sidecar manager', () => {
     const env = { CLAUDE_CONFIG_DIR: configDir } as NodeJS.ProcessEnv
     try {
       // Nothing stored yet: no preferred ports.
+      expect(preferredServerPorts(env)).toEqual([])
+
+      // A browser-blocked port persisted by an older build is ignored.
+      writeFileSync(
+        path.join(configDir, SERVER_STATE_FILE),
+        JSON.stringify({ lastPort: 5061 }),
+        'utf-8',
+      )
+      expect(readLastServerPort(env)).toBeNull()
       expect(preferredServerPorts(env)).toEqual([])
 
       // Sticky port from the previous run.
@@ -286,6 +303,41 @@ describe('Electron sidecar manager', () => {
 
     // Invalid entries are skipped without throwing.
     await expect(reserveServerPort('127.0.0.1', [0, -1, 1.5, 70000])).resolves.toBeGreaterThan(0)
+  })
+
+  it('skips preferred ports blocked by browser fetch', async () => {
+    const port = await reserveServerPort('127.0.0.1', [5061])
+    expect(port).not.toBe(5061)
+  })
+
+  it('retries when the OS assigns a browser-blocked random port', async () => {
+    const reserveCandidate = vi.fn()
+      .mockResolvedValueOnce(5061)
+      .mockResolvedValueOnce(5062)
+
+    await expect(reserveLocalPort('127.0.0.1', { reserveCandidate })).resolves.toBe(5062)
+    expect(reserveCandidate).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops retrying after repeated browser-blocked random ports', async () => {
+    const reserveCandidate = vi.fn().mockResolvedValue(5061)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      await expect(reserveLocalPort('127.0.0.1', { reserveCandidate }))
+        .rejects.toThrow('Could not reserve a browser-safe local port')
+      expect(reserveCandidate).toHaveBeenCalledTimes(128)
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('propagates random port reservation errors', async () => {
+    const reserveCandidate = vi.fn().mockRejectedValue(new Error('bind failed'))
+
+    await expect(reserveLocalPort('127.0.0.1', { reserveCandidate }))
+      .rejects.toThrow('bind failed')
+    expect(reserveCandidate).toHaveBeenCalledTimes(1)
   })
 
   it('does not treat a raw TCP accept as server readiness without healthy /health', async () => {
