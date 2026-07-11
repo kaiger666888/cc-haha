@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MessageList, buildRenderModel, shouldVirtualizeRenderItems } from './MessageList'
+import {
+  MessageList,
+  buildRenderModel,
+  buildVirtualItemOffsets,
+  getActiveConversationNavigationItemId,
+  getConversationNavigationTargetScrollTop,
+  shouldVirtualizeRenderItems,
+} from './MessageList'
+import type { ConversationNavigationItem } from './ConversationNavigator'
 import type { VirtualRenderItemMetric } from './virtualHeightCache'
 import { relativizeWorkspacePath } from './CurrentTurnChangeCard'
 import { sessionsApi } from '../../api/sessions'
@@ -339,6 +347,173 @@ describe('MessageList nested tool calls', () => {
 
     expect(container.querySelector('[data-virtual-message-item]')).not.toBeNull()
     expect(screen.getByText('latest assistant reply')).toBeTruthy()
+  })
+
+  it('shows the conversation navigator for normal desktop transcripts and hides it in compact mode', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            { id: 'user-1', type: 'user_text', content: 'First prompt', timestamp: 1 },
+            { id: 'assistant-1', type: 'assistant_text', content: 'First answer', timestamp: 2 },
+            { id: 'user-2', type: 'user_text', content: 'Second prompt', timestamp: 3 },
+            { id: 'assistant-2', type: 'assistant_text', content: 'Second answer', timestamp: 4 },
+          ],
+        }),
+      },
+    })
+
+    const { rerender } = render(<MessageList />)
+    expect(screen.getByRole('navigation', { name: 'Conversation navigation' })).toBeTruthy()
+
+    rerender(<MessageList compact />)
+    expect(screen.queryByRole('navigation', { name: 'Conversation navigation' })).toBeNull()
+  })
+
+  it('updates the active conversation marker while the transcript scrolls', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            { id: 'user-1', type: 'user_text', content: 'First prompt', timestamp: 1 },
+            { id: 'assistant-1', type: 'assistant_text', content: 'First answer', timestamp: 2 },
+            { id: 'user-2', type: 'user_text', content: 'Second prompt', timestamp: 3 },
+            { id: 'assistant-2', type: 'assistant_text', content: 'Second answer', timestamp: 4 },
+          ],
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scroller = container.querySelector('.chat-scroll-area') as HTMLElement
+    let scrollTop = 0
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 200 })
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 450 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => { scrollTop = value },
+    })
+
+    fireEvent.scroll(scroller)
+    expect(screen.getByRole('button', { name: /User message: First prompt/ }).getAttribute('aria-current')).toBe('location')
+
+    scrollTop = 250
+    fireEvent.scroll(scroller)
+    expect(screen.getByRole('button', { name: /User message: Second prompt/ }).getAttribute('aria-current')).toBe('location')
+  })
+
+  it('mounts and highlights a far virtualized message selected from the navigator', async () => {
+    const messages: UIMessage[] = Array.from({ length: 220 }, (_, index) => ({
+      id: `${index % 2 === 0 ? 'user' : 'assistant'}-${index}`,
+      type: index % 2 === 0 ? 'user_text' : 'assistant_text',
+      content: `${index % 2 === 0 ? 'Prompt' : 'Answer'} ${index}`,
+      timestamp: index,
+    })) as UIMessage[]
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({ messages }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scroller = container.querySelector('.chat-scroll-area') as HTMLElement
+    let scrollTop = 24_000
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 500 })
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 25_000 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => { scrollTop = value },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /User message: Prompt 0/ }))
+
+    await waitFor(() => expect(screen.getByText('Prompt 0')).toBeTruthy())
+    expect(scrollTop).toBe(0)
+    expect(container.querySelector('[data-chat-render-item-key="user-0"]')?.className).toContain('chat-render-item--navigation-target')
+  })
+
+  it('resumes following new output after navigating to the latest message', async () => {
+    const messages: UIMessage[] = [
+      { id: 'user-1', type: 'user_text', content: 'First prompt', timestamp: 1 },
+      { id: 'assistant-1', type: 'assistant_text', content: 'First answer', timestamp: 2 },
+      { id: 'user-2', type: 'user_text', content: 'Second prompt', timestamp: 3 },
+      { id: 'assistant-2', type: 'assistant_text', content: 'Second answer', timestamp: 4 },
+    ]
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({ messages }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scroller = container.querySelector('.chat-scroll-area') as HTMLElement
+    let scrollTop = 100
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => { scrollTop = value >= 1_000_000_000 ? 600 : value },
+    })
+    Object.defineProperty(scroller, 'scrollTo', {
+      configurable: true,
+      value: (options: ScrollToOptions) => { scroller.scrollTop = options.top ?? 0 },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Assistant message: Second answer/ }))
+    act(() => {
+      useChatStore.setState({
+        sessions: {
+          [ACTIVE_TAB]: makeSessionState({
+            messages,
+            chatState: 'streaming',
+            streamingText: 'More output from the latest reply',
+          }),
+        },
+      })
+    })
+
+    await waitFor(() => expect(scrollTop).toBe(600))
+  })
+
+  it('does not treat the last text marker as the transcript tail when tool output follows it', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            { id: 'user-1', type: 'user_text', content: 'First prompt', timestamp: 1 },
+            { id: 'assistant-1', type: 'assistant_text', content: 'First answer', timestamp: 2 },
+            { id: 'user-2', type: 'user_text', content: 'Second prompt', timestamp: 3 },
+            { id: 'assistant-2', type: 'assistant_text', content: 'Second answer', timestamp: 4 },
+            {
+              id: 'tool-tail',
+              type: 'tool_use',
+              toolName: 'Read',
+              toolUseId: 'tool-tail-use',
+              input: { file_path: '/tmp/example.txt' },
+              timestamp: 5,
+            },
+          ],
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scroller = container.querySelector('.chat-scroll-area') as HTMLElement
+    let scrollTop = 100
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => { scrollTop = value >= 1_000_000_000 ? 600 : value },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Assistant message: Second answer/ }))
+
+    expect(scrollTop).not.toBe(600)
   })
 
   it('filters duplicate unresolved AskUserQuestion cards while a matching permission is pending', () => {
@@ -4702,5 +4877,44 @@ describe('shouldVirtualizeRenderItems', () => {
     } finally {
       document.documentElement.removeAttribute('data-touch-h5')
     }
+  })
+})
+
+describe('conversation navigation layout', () => {
+  const metrics: VirtualRenderItemMetric[] = [
+    { signature: 'a', contentWeight: 1, estimatedHeight: 100 },
+    { signature: 'b', contentWeight: 1, estimatedHeight: 200 },
+    { signature: 'c', contentWeight: 1, estimatedHeight: 300 },
+  ]
+  const items: ConversationNavigationItem[] = [
+    { id: 'a', renderItemKey: 'a', renderIndex: 0, role: 'user', preview: 'A', attachmentCount: 0 },
+    { id: 'b', renderItemKey: 'b', renderIndex: 1, role: 'assistant', preview: 'B', attachmentCount: 0 },
+    { id: 'c', renderItemKey: 'c', renderIndex: 2, role: 'user', preview: 'C', attachmentCount: 0 },
+  ]
+
+  it('uses measured heights when calculating transcript offsets', () => {
+    const offsets = buildVirtualItemOffsets(
+      ['a', 'b', 'c'],
+      metrics,
+      new Map([['b', 250]]),
+    )
+
+    expect(offsets).toEqual([0, 100, 350, 650])
+  })
+
+  it('selects the last navigation item above the viewport reading anchor', () => {
+    const offsets = [0, 100, 350, 650]
+
+    expect(getActiveConversationNavigationItemId(items, offsets, 0, 300)).toBe('a')
+    expect(getActiveConversationNavigationItemId(items, offsets, 0, 600)).toBe('a')
+    expect(getActiveConversationNavigationItemId(items, offsets, 120, 300)).toBe('b')
+    expect(getActiveConversationNavigationItemId(items, offsets, 330, 300)).toBe('c')
+  })
+
+  it('places navigation targets near the upper reading anchor and clamps the range', () => {
+    const offsets = [0, 100, 350, 650]
+
+    expect(getConversationNavigationTargetScrollTop(items[0]!, offsets, 400, 650)).toBe(0)
+    expect(getConversationNavigationTargetScrollTop(items[2]!, offsets, 400, 650)).toBe(250)
   })
 })

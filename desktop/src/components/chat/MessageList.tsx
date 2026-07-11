@@ -22,6 +22,11 @@ import { AskUserQuestion } from './AskUserQuestion'
 import { StreamingIndicator } from './StreamingIndicator'
 import { InlineTaskSummary } from './InlineTaskSummary'
 import { CurrentTurnChangeCard } from './CurrentTurnChangeCard'
+import {
+  buildConversationNavigationItems,
+  ConversationNavigator,
+  type ConversationNavigationItem,
+} from './ConversationNavigator'
 import type { AgentTaskNotification, UIMessage } from '../../types/chat'
 import { formatTokenCount } from '../../lib/formatTokenCount'
 import { formatDurationMs, hasRunningBackgroundTasks as hasAnyRunningBackgroundTasks } from '../../lib/backgroundTasks'
@@ -944,6 +949,8 @@ const VIRTUAL_MAX_ITEM_HEIGHT = 24_000
 // Windows WebView2 can report 1px oscillations for live chat content; don't
 // convert those into bottom-scroll corrections.
 const CONTENT_RESIZE_FOLLOW_MIN_DELTA_PX = 2
+const CONVERSATION_NAVIGATION_MIN_ITEMS = 4
+const STREAMING_ASSISTANT_NAVIGATION_KEY = 'streaming-assistant-message'
 const EMPTY_MESSAGES: UIMessage[] = []
 const EMPTY_AGENT_TASK_NOTIFICATIONS: Record<string, AgentTaskNotification> = {}
 const CHAT_SCROLL_AREA_CLASS = [
@@ -984,6 +991,8 @@ type VirtualTranscriptWindow = {
   beforeHeight: number
   afterHeight: number
   items: VirtualTranscriptItem[]
+  offsets: number[]
+  totalHeight: number
 }
 
 const sessionScrollSnapshots = new Map<string, SessionScrollSnapshot>()
@@ -1228,6 +1237,55 @@ function findVirtualEndIndex(offsets: number[], target: number) {
   return clampNumber(low + 1, 0, offsets.length - 1)
 }
 
+export function buildVirtualItemOffsets(
+  itemKeys: string[],
+  metrics: VirtualRenderItemMetric[],
+  measuredHeights: Map<string, number>,
+) {
+  const offsets = new Array<number>(itemKeys.length + 1)
+  offsets[0] = 0
+  for (let index = 0; index < itemKeys.length; index += 1) {
+    const measuredHeight = measuredHeights.get(itemKeys[index]!)
+    const height = measuredHeight && measuredHeight > 0
+      ? measuredHeight
+      : metrics[index]?.estimatedHeight ?? VIRTUAL_MIN_ITEM_HEIGHT
+    offsets[index + 1] = offsets[index]! + height
+  }
+  return offsets
+}
+
+const CONVERSATION_NAVIGATION_READING_ANCHOR_RATIO = 0.25
+
+export function getActiveConversationNavigationItemId(
+  items: ConversationNavigationItem[],
+  offsets: number[],
+  scrollTop: number,
+  viewportHeight: number,
+) {
+  if (items.length === 0) return null
+  if (scrollTop <= 1) return items[0]!.id
+  const readingAnchor = scrollTop + viewportHeight * CONVERSATION_NAVIGATION_READING_ANCHOR_RATIO
+  let activeItem = items[0]!
+
+  for (const item of items) {
+    if ((offsets[item.renderIndex] ?? 0) > readingAnchor) break
+    activeItem = item
+  }
+
+  return activeItem.id
+}
+
+export function getConversationNavigationTargetScrollTop(
+  item: ConversationNavigationItem,
+  offsets: number[],
+  viewportHeight: number,
+  totalHeight: number,
+) {
+  const targetTop = offsets[item.renderIndex] ?? 0
+  const readingAnchor = viewportHeight * CONVERSATION_NAVIGATION_READING_ANCHOR_RATIO
+  return clampNumber(targetTop - readingAnchor, 0, Math.max(0, totalHeight - viewportHeight))
+}
+
 function buildVirtualTranscriptWindow(
   renderItems: RenderItem[],
   itemKeys: string[],
@@ -1236,27 +1294,19 @@ function buildVirtualTranscriptWindow(
   viewport: VirtualViewport,
   overscanPx: number,
 ): VirtualTranscriptWindow {
+  const offsets = buildVirtualItemOffsets(itemKeys, metrics, measuredHeights)
+  const totalHeight = offsets[renderItems.length] ?? 0
   if (!shouldVirtualizeRenderItems(metrics)) {
     return {
       enabled: false,
       beforeHeight: 0,
       afterHeight: 0,
       items: renderItems.map((item, index) => ({ item, index })),
+      offsets,
+      totalHeight,
     }
   }
 
-  const offsets = new Array<number>(renderItems.length + 1)
-  offsets[0] = 0
-  for (let index = 0; index < renderItems.length; index += 1) {
-    const item = renderItems[index]!
-    const measuredHeight = measuredHeights.get(itemKeys[index]!)
-    const height = measuredHeight && measuredHeight > 0
-      ? measuredHeight
-      : metrics[index]?.estimatedHeight ?? estimateRenderItemHeight(item)
-    offsets[index + 1] = offsets[index]! + height
-  }
-
-  const totalHeight = offsets[renderItems.length] ?? 0
   const viewportHeight = viewport.viewportHeight || VIRTUAL_DEFAULT_VIEWPORT_HEIGHT
   const maxScrollTop = Math.max(0, totalHeight - viewportHeight)
   const scrollTop = clampNumber(viewport.scrollTop, 0, maxScrollTop)
@@ -1273,6 +1323,8 @@ function buildVirtualTranscriptWindow(
       item,
       index: startIndex + offset,
     })),
+    offsets,
+    totalHeight,
   }
 }
 
@@ -1322,10 +1374,12 @@ function VirtualSpacer({ height, position }: { height: number; position: 'top' |
 const MeasuredRenderItem = memo(function MeasuredRenderItem({
   itemKey,
   onHeightChange,
+  highlighted,
   children,
 }: {
   itemKey: string
   onHeightChange: (itemKey: string, height: number) => void
+  highlighted: boolean
   children: ReactNode
 }) {
   const itemRef = useRef<HTMLDivElement>(null)
@@ -1349,7 +1403,8 @@ const MeasuredRenderItem = memo(function MeasuredRenderItem({
     <div
       ref={itemRef}
       data-virtual-message-item={itemKey}
-      className={CHAT_RENDER_ITEM_CLASS}
+      data-chat-render-item-key={itemKey}
+      className={`${CHAT_RENDER_ITEM_CLASS} ${highlighted ? 'chat-render-item--navigation-target' : ''}`}
     >
       {children}
     </div>
@@ -1396,6 +1451,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
   )
   const pendingMeasuredHeightsRef = useRef(false)
   const measureFlushFrameRef = useRef<number | null>(null)
+  const navigationHighlightTimerRef = useRef<number | null>(null)
   const lastAutoScrollAtRef = useRef(0)
   const lastContentResizeFollowHeightRef = useRef<number | null>(null)
   const shouldAutoScrollRef = useRef(true)
@@ -1418,6 +1474,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     viewportHeight: VIRTUAL_DEFAULT_VIEWPORT_HEIGHT,
   })
   const [measuredItemsVersion, setMeasuredItemsVersion] = useState(0)
+  const [highlightedNavigationItemKey, setHighlightedNavigationItemKey] = useState<string | null>(null)
   const branchActionsDisabled =
     isMemberSession ||
     chatState !== 'idle' ||
@@ -1432,6 +1489,9 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
   useEffect(() => () => {
     if (measureFlushFrameRef.current !== null) {
       cancelAnimationFrame(measureFlushFrameRef.current)
+    }
+    if (navigationHighlightTimerRef.current !== null) {
+      window.clearTimeout(navigationHighlightTimerRef.current)
     }
   }, [])
 
@@ -1736,6 +1796,37 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     }),
     [renderItemKeys, renderItems],
   )
+  const conversationNavigationHistoryItems = useMemo(() => {
+    const sources = renderItems.flatMap((item, renderIndex) => item.kind === 'message'
+      ? [{
+          message: item.message,
+          renderIndex,
+          renderItemKey: getRenderItemKey(item),
+        }]
+      : [])
+
+    return buildConversationNavigationItems(sources)
+  }, [renderItems])
+  const streamingConversationNavigationItem = useMemo(() => {
+    if (!streamingText.trim()) return null
+
+    return buildConversationNavigationItems([{
+      message: {
+        id: `${STREAMING_ASSISTANT_NAVIGATION_KEY}-${resolvedSessionId ?? 'session'}`,
+        type: 'assistant_text',
+        content: streamingText,
+        timestamp: 0,
+      },
+      renderIndex: renderItems.length,
+      renderItemKey: STREAMING_ASSISTANT_NAVIGATION_KEY,
+    }])[0] ?? null
+  }, [renderItems, resolvedSessionId, streamingText])
+  const conversationNavigationItems = useMemo(
+    () => streamingConversationNavigationItem
+      ? [...conversationNavigationHistoryItems, streamingConversationNavigationItem]
+      : conversationNavigationHistoryItems,
+    [conversationNavigationHistoryItems, streamingConversationNavigationItem],
+  )
   const virtualTranscriptWindow = useMemo(
     () => buildVirtualTranscriptWindow(
       renderItems,
@@ -1747,6 +1838,19 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     ),
     [measuredItemsVersion, renderItemKeys, renderItemMetrics, renderItems, virtualViewport],
   )
+  const activeConversationNavigationItemId = useMemo(
+    () => getActiveConversationNavigationItemId(
+      conversationNavigationItems,
+      virtualTranscriptWindow.offsets,
+      virtualViewport.scrollTop,
+      virtualViewport.viewportHeight,
+    ),
+    [conversationNavigationItems, virtualTranscriptWindow.offsets, virtualViewport],
+  )
+  const showConversationNavigator =
+    !compact &&
+    !isTouchH5Document() &&
+    conversationNavigationItems.length >= CONVERSATION_NAVIGATION_MIN_ITEMS
   const confirmTurnCard = useMemo(
     () => visibleTurnChangeCards.find((card) => card.target.messageId === turnUndoConfirmTargetId) ?? null,
     [turnUndoConfirmTargetId, visibleTurnChangeCards],
@@ -1952,6 +2056,81 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     return result
   }, [toolResultMap])
 
+  const handleNavigateToConversationItem = useCallback((item: ConversationNavigationItem) => {
+    const container = scrollContainerRef.current
+    if (!container) return
+
+    const viewportHeight = container.clientHeight || virtualViewport.viewportHeight || VIRTUAL_DEFAULT_VIEWPORT_HEIGHT
+    const isTranscriptTail =
+      item.renderItemKey === STREAMING_ASSISTANT_NAVIGATION_KEY ||
+      item.renderIndex === renderItems.length - 1
+    setHighlightedNavigationItemKey(item.renderItemKey)
+
+    const scheduleHighlightClear = () => {
+      if (navigationHighlightTimerRef.current !== null) {
+        window.clearTimeout(navigationHighlightTimerRef.current)
+      }
+      navigationHighlightTimerRef.current = window.setTimeout(() => {
+        setHighlightedNavigationItemKey((current) => current === item.renderItemKey ? null : current)
+        navigationHighlightTimerRef.current = null
+      }, 1400)
+    }
+
+    if (isTranscriptTail) {
+      scrollToBottom('auto')
+      requestAnimationFrame(scheduleHighlightClear)
+      return
+    }
+
+    const targetScrollTop = getConversationNavigationTargetScrollTop(
+      item,
+      virtualTranscriptWindow.offsets,
+      viewportHeight,
+      virtualTranscriptWindow.totalHeight,
+    )
+    const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    const isNearby = Math.abs(container.scrollTop - targetScrollTop) <= viewportHeight * 1.25
+
+    shouldAutoScrollRef.current = false
+    setShowJumpToLatest(true)
+    ignoreProgrammaticScrollUntilRef.current = performance.now() + 250
+    ignoreProgrammaticScrollTopRef.current = targetScrollTop
+
+    if (isNearby && !prefersReducedMotion && typeof container.scrollTo === 'function') {
+      container.scrollTo({ top: targetScrollTop, behavior: 'smooth' })
+    } else {
+      setScrollTopWithoutLayoutRead(container, targetScrollTop)
+    }
+    setVirtualViewport({ scrollTop: targetScrollTop, viewportHeight })
+
+    requestAnimationFrame(() => {
+      const targetNode = Array.from(
+        scrollContentRef.current?.querySelectorAll<HTMLElement>('[data-chat-render-item-key]') ?? [],
+      ).find((node) => node.dataset.chatRenderItemKey === item.renderItemKey)
+
+      if (targetNode) {
+        const targetRect = targetNode.getBoundingClientRect()
+        const containerRect = container.getBoundingClientRect()
+        if (targetRect.height > 0) {
+          const correction = targetRect.top - containerRect.top - viewportHeight * CONVERSATION_NAVIGATION_READING_ANCHOR_RATIO
+          if (Math.abs(correction) >= 1) {
+            setScrollTopWithoutLayoutRead(container, container.scrollTop + correction)
+            syncVirtualViewportFromContainer(container)
+          }
+        }
+      }
+
+      scheduleHighlightClear()
+    })
+  }, [
+    renderItems.length,
+    scrollToBottom,
+    syncVirtualViewportFromContainer,
+    virtualTranscriptWindow.offsets,
+    virtualTranscriptWindow.totalHeight,
+    virtualViewport.viewportHeight,
+  ])
+
   const renderTranscriptItem = (item: RenderItem, index: number) => {
     const cardsForItem = turnCardsByRenderIndex.get(index) ?? []
 
@@ -2027,11 +2206,16 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
                 key={itemKey}
                 itemKey={itemKey}
                 onHeightChange={handleVirtualItemHeightChange}
+                highlighted={highlightedNavigationItemKey === itemKey}
               >
                 {content}
               </MeasuredRenderItem>
             ) : (
-              <div key={itemKey} className={`${CHAT_RENDER_ITEM_CLASS} chat-render-item--cv`}>
+              <div
+                key={itemKey}
+                data-chat-render-item-key={itemKey}
+                className={`${CHAT_RENDER_ITEM_CLASS} chat-render-item--cv ${highlightedNavigationItemKey === itemKey ? 'chat-render-item--navigation-target' : ''}`}
+              >
                 {content}
               </div>
             )
@@ -2042,7 +2226,12 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
           ) : null}
 
           {streamingText.trim() && (
-            <AssistantMessage content={streamingText} isStreaming={chatState === 'streaming'} />
+            <div
+              data-chat-render-item-key={STREAMING_ASSISTANT_NAVIGATION_KEY}
+              className={highlightedNavigationItemKey === STREAMING_ASSISTANT_NAVIGATION_KEY ? 'chat-render-item--navigation-target' : ''}
+            >
+              <AssistantMessage content={streamingText} isStreaming={chatState === 'streaming'} />
+            </div>
           )}
 
           {chatState === 'compacting' && !hasCompactingDivider && (
@@ -2066,6 +2255,14 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
           <div />
         </div>
       </div>
+
+      {showConversationNavigator ? (
+        <ConversationNavigator
+          items={conversationNavigationItems}
+          activeItemId={activeConversationNavigationItemId}
+          onNavigate={handleNavigateToConversationItem}
+        />
+      ) : null}
 
       {showJumpToLatest && (
         <button

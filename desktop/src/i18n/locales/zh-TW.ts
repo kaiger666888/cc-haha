@@ -1198,6 +1198,8 @@ export const zh: Record<TranslationKey, string> = {
   'chat.branchError': '從該訊息 Fork 新對話失敗。詳情：{detail}',
   'chat.userMessageReference': '使用者訊息',
   'chat.assistantMessageReference': 'AI 回覆',
+  'chat.conversationNavigator.label': '對話導覽',
+  'chat.conversationNavigator.attachments': '{count} 個附件',
   'chat.slashCommands': '斜槓命令',
   'chat.pendingMessageGuide': '引導',
   'chat.pendingMessageGuideNow': '立即引導',

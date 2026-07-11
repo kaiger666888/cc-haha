@@ -1198,6 +1198,8 @@ export const jp: Record<TranslationKey, string> = {
   'chat.branchError': 'このメッセージから分岐できませんでした。詳細: {detail}',
   'chat.userMessageReference': 'ユーザーメッセージ',
   'chat.assistantMessageReference': 'アシスタントメッセージ',
+  'chat.conversationNavigator.label': '会話ナビゲーション',
+  'chat.conversationNavigator.attachments': '添付ファイル {count} 件',
   'chat.slashCommands': 'スラッシュコマンド',
   'chat.pendingMessageGuide': '誘導',
   'chat.pendingMessageGuideNow': '今すぐ誘導',

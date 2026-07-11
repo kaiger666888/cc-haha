@@ -581,6 +581,7 @@
   --color-text-primary-a78: rgba(27, 28, 26, 0.78);
   --color-surface-hover-a34: rgba(233, 232, 228, 0.34);
   --color-surface-hover-a54: rgba(233, 232, 228, 0.54);
+  --color-chat-navigation-target: rgba(143, 72, 47, 0.10);
   --color-outline-a72: rgba(135, 115, 109, 0.72);
   --color-outline-a78: rgba(135, 115, 109, 0.78);
   --color-outline-a92: rgba(135, 115, 109, 0.92);
@@ -775,6 +776,7 @@
   --color-text-primary-a78: rgba(17, 24, 39, 0.78);
   --color-surface-hover-a34: rgba(241, 244, 247, 0.34);
   --color-surface-hover-a54: rgba(241, 244, 247, 0.54);
+  --color-chat-navigation-target: rgba(143, 72, 47, 0.10);
   --color-outline-a72: rgba(139, 152, 167, 0.72);
   --color-outline-a78: rgba(139, 152, 167, 0.78);
   --color-outline-a92: rgba(139, 152, 167, 0.92);
@@ -963,6 +965,7 @@
   --color-text-primary-a78: rgba(229, 226, 225, 0.78);
   --color-surface-hover-a34: rgba(53, 53, 52, 0.34);
   --color-surface-hover-a54: rgba(53, 53, 52, 0.54);
+  --color-chat-navigation-target: rgba(255, 181, 159, 0.10);
   --color-outline-a72: rgba(141, 127, 122, 0.72);
   --color-outline-a78: rgba(141, 127, 122, 0.78);
   --color-outline-a92: rgba(141, 127, 122, 0.92);
@@ -1480,6 +1483,24 @@ button, input, textarea, select, a, [role="button"] {
 .chat-render-item--cv {
   content-visibility: auto;
   contain-intrinsic-size: auto 300px;
+}
+
+@keyframes chat-navigation-target-pulse {
+  0% { background: transparent; }
+  22% { background: var(--color-chat-navigation-target); }
+  100% { background: transparent; }
+}
+
+.chat-render-item--navigation-target {
+  border-radius: var(--radius-lg);
+  animation: chat-navigation-target-pulse 1.4s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-render-item--navigation-target {
+    animation: none;
+    background: var(--color-chat-navigation-target);
+  }
 }
 
 /* Same WebKit paint-skipping trick for trace tree rows (see .chat-render-item--cv

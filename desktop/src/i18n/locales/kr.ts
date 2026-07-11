@@ -1198,6 +1198,8 @@ export const kr: Record<TranslationKey, string> = {
   'chat.branchError': '이 메시지에서 분기할 수 없습니다. 세부 정보: {detail}',
   'chat.userMessageReference': '사용자 메시지',
   'chat.assistantMessageReference': '어시스턴트 메시지',
+  'chat.conversationNavigator.label': '대화 탐색',
+  'chat.conversationNavigator.attachments': '첨부 파일 {count}개',
   'chat.slashCommands': '슬래시 명령',
   'chat.pendingMessageGuide': '가이드',
   'chat.pendingMessageGuideNow': '지금 가이드',

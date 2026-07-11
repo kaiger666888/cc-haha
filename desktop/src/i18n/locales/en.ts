@@ -1196,6 +1196,8 @@ export const en = {
   'chat.branchError': 'Failed to branch from this message. Detail: {detail}',
   'chat.userMessageReference': 'User message',
   'chat.assistantMessageReference': 'Assistant message',
+  'chat.conversationNavigator.label': 'Conversation navigation',
+  'chat.conversationNavigator.attachments': '{count} attachments',
   'chat.slashCommands': 'Slash commands',
   'chat.pendingMessageGuide': 'Guide',
   'chat.pendingMessageGuideNow': 'Guide now',
