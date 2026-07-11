@@ -2,13 +2,17 @@ import { describe, expect, it, vi } from 'vitest'
 import net from 'node:net'
 import http from 'node:http'
 import path from 'node:path'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import {
+  appendHostDiagnostic,
   buildSidecarEnv,
   createAdapterPlan,
   createServerPlan,
+  electronHostDiagnosticsFile,
   httpToWebSocketUrl,
+  HOST_DIAGNOSTICS_BYTE_LIMIT,
+  HOST_DIAGNOSTICS_LINE_LIMIT,
   killSidecar,
   mergeProxyEnv,
   parseH5FixedPort,
@@ -51,6 +55,23 @@ function close(server: http.Server): Promise<void> {
 }
 
 describe('Electron sidecar manager', () => {
+  it('places the Electron host log in the active server diagnostics directory', () => {
+    const portableDir = path.join(tmpdir(), 'cc-haha-portable-diagnostics')
+
+    expect(electronHostDiagnosticsFile(
+      { CLAUDE_CONFIG_DIR: portableDir },
+      path.join(tmpdir(), 'unused-home'),
+    )).toBe(path.join(portableDir, 'cc-haha', 'diagnostics', 'electron-host.log'))
+  })
+
+  it('resolves the default Electron host log without consulting real user state', () => {
+    const isolatedHome = path.resolve(path.sep, '__cc_haha_injected_test_home__')
+
+    expect(electronHostDiagnosticsFile({}, isolatedHome)).toBe(
+      path.join(isolatedHome, '.claude', 'cc-haha', 'diagnostics', 'electron-host.log'),
+    )
+  })
+
   it('maps host platform to existing sidecar target triples', () => {
     expect(resolveHostTriple('darwin', 'arm64')).toBe('aarch64-apple-darwin')
     expect(resolveHostTriple('darwin', 'x64')).toBe('x86_64-apple-darwin')
@@ -158,6 +179,95 @@ describe('Electron sidecar manager', () => {
     }
     expect(logs).toHaveLength(80)
     expect(logs[0]).toBe('line 5')
+  })
+
+  it('sanitizes the bounded startup tail before it reaches an error surface', () => {
+    const logs: string[] = []
+    pushStartupLog(
+      logs,
+      `Bearer startup.secret sk-proj-STARTUPSECRETVALUE https://alice:password@example.com ${homedir()}/project`,
+    )
+
+    expect(logs[0]).toContain('Bearer [REDACTED]')
+    expect(logs[0]).toContain('https://[REDACTED]@example.com/')
+    expect(logs[0]).toContain('[HOME]/project')
+    expect(logs[0]).not.toContain('startup.secret')
+    expect(logs[0]).not.toContain('sk-proj-STARTUPSECRETVALUE')
+    expect(logs[0]).not.toContain(homedir())
+  })
+
+  it('appends only a bounded sanitized Electron host-log tail', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'cc-haha-electron-host-'))
+    const logPath = path.join(dir, 'electron-host.log')
+    const homeDir = path.join(dir, 'private-home')
+    try {
+      for (let index = 0; index < HOST_DIAGNOSTICS_LINE_LIMIT + 5; index++) {
+        appendHostDiagnostic(logPath, `line ${index}`, { homeDir })
+      }
+      appendHostDiagnostic(
+        logPath,
+        `Authorization: Bearer bearer.secret api_key=sk-ant-api03-PRIVATE ANTHROPIC_API_KEY=anthropic-secret OPENAI_API_KEY="openai-secret" MINIMAX_AUTH_TOKEN='minimax-secret' https://alice:password@example.com/private ${homeDir}/project`,
+        { homeDir },
+      )
+
+      const contents = readFileSync(logPath, 'utf-8')
+      const lines = contents.trimEnd().split('\n')
+      expect(contents).toContain('Bearer [REDACTED]')
+      expect(contents).toContain('api_key=[REDACTED]')
+      expect(contents).toContain('ANTHROPIC_API_KEY=[REDACTED]')
+      expect(contents).toContain('OPENAI_API_KEY=[REDACTED]')
+      expect(contents).toContain('MINIMAX_AUTH_TOKEN=[REDACTED]')
+      expect(contents).toContain('https://[REDACTED]@example.com/private')
+      expect(contents).toContain('[HOME]/project')
+      expect(contents).not.toContain('bearer.secret')
+      expect(contents).not.toContain('sk-ant-api03-PRIVATE')
+      expect(contents).not.toContain('anthropic-secret')
+      expect(contents).not.toContain('openai-secret')
+      expect(contents).not.toContain('minimax-secret')
+      expect(contents).not.toContain('alice:password')
+      expect(contents).not.toContain(homeDir)
+      expect(lines).toHaveLength(HOST_DIAGNOSTICS_LINE_LIMIT)
+      expect(lines[0]).toBe('line 6')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('bounds and re-sanitizes an oversized pre-existing host diagnostics file', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'cc-haha-electron-host-existing-'))
+    const logPath = path.join(dir, 'electron-host.log')
+    const homeDir = path.join(dir, 'private-home')
+    try {
+      writeFileSync(
+        logPath,
+        `${'oversized-old-data '.repeat(HOST_DIAGNOSTICS_BYTE_LIMIT)}\nOPENAI_API_KEY=old-secret ${homeDir}/private\n`,
+        'utf-8',
+      )
+
+      appendHostDiagnostic(logPath, 'latest safe diagnostic', { homeDir })
+
+      const contents = readFileSync(logPath, 'utf-8')
+      expect(statSync(logPath).size).toBeLessThanOrEqual(HOST_DIAGNOSTICS_BYTE_LIMIT)
+      expect(contents.trimEnd().split('\n').length).toBeLessThanOrEqual(HOST_DIAGNOSTICS_LINE_LIMIT)
+      expect(contents).toContain('latest safe diagnostic')
+      expect(contents).toContain('OPENAI_API_KEY=[REDACTED]')
+      expect(contents).not.toContain('old-secret')
+      expect(contents).not.toContain(homeDir)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not crash Electron when the host diagnostics destination cannot be written', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'cc-haha-electron-host-failure-'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      expect(() => appendHostDiagnostic(dir, 'sidecar failed')).not.toThrow()
+      expect(errorSpy).toHaveBeenCalledWith('[desktop] failed to persist Electron host diagnostics')
+    } finally {
+      errorSpy.mockRestore()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('maps http urls to adapter websocket urls', () => {

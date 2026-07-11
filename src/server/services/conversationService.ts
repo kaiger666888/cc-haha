@@ -1680,36 +1680,29 @@ export class ConversationService {
   private summarizeSdkMessages(messages: any[]): unknown[] {
     return messages.slice(-MAX_CAPTURED_SDK_SUMMARY).map((message) => {
       if (!message || typeof message !== 'object') {
-        return message
+        return { type: 'unknown' }
       }
-      const content = Array.isArray(message.message?.content)
-        ? message.message.content.map((block: unknown) => {
-            if (!block || typeof block !== 'object') return block
-            const typedBlock = block as Record<string, unknown>
-            return {
-              type: typedBlock.type,
-              text:
-                typeof typedBlock.text === 'string'
-                  ? this.redactProcessOutput(typedBlock.text)
-                  : undefined,
-            }
-          })
-        : undefined
       return {
-        type: message.type,
-        subtype: message.subtype,
-        is_error: message.is_error,
-        status: typeof message.status === 'string' ? message.status : undefined,
-        result: typeof message.result === 'string' ? this.redactProcessOutput(message.result) : undefined,
-        error: typeof message.error === 'string' ? this.redactProcessOutput(message.error) : undefined,
-        errorDetails:
-          typeof message.errorDetails === 'string'
-            ? this.redactProcessOutput(message.errorDetails)
-            : undefined,
-        message: typeof message.message === 'string' ? this.redactProcessOutput(message.message) : undefined,
-        content,
+        type: typeof message.type === 'string' ? message.type : 'unknown',
+        ...(typeof message.subtype === 'string' ? { subtype: message.subtype } : {}),
+        ...(typeof message.is_error === 'boolean' ? { is_error: message.is_error } : {}),
+        ...(this.isSafeSdkStatus(message.status) ? { status: message.status } : {}),
+        ...(this.sdkErrorCategory(message) ? { errorCategory: this.sdkErrorCategory(message) } : {}),
       }
     })
+  }
+
+  private isSafeSdkStatus(value: unknown): value is string {
+    return typeof value === 'string' && /^(?:failed|error|success|completed|cancelled|canceled|pending|running)$/i.test(value)
+  }
+
+  private sdkErrorCategory(message: any): string | undefined {
+    if (message?.type === 'assistant' && (message.isApiErrorMessage === true || message.error !== undefined)) {
+      return 'api_error'
+    }
+    if (message?.type === 'result' && message.is_error === true) return 'result_error'
+    if (message?.type === 'auth_status') return 'authentication'
+    return undefined
   }
 
   private async buildUserContent(

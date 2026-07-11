@@ -1052,6 +1052,35 @@ describe('ConversationService', () => {
     expect(completionObserved).toBe(true)
     expect(service.hasSession(sessionId)).toBe(false)
   })
+
+  test('summarizes SDK diagnostics with transport metadata only', () => {
+    const service = new ConversationService()
+    const summarized = (service as any).summarizeSdkMessages([{
+      type: 'assistant',
+      subtype: 'api_error',
+      is_error: true,
+      status: 'failed',
+      result: 'PRIVATE_SDK_RESULT',
+      error: 'PRIVATE_SDK_ERROR',
+      errorDetails: 'PRIVATE_ERROR_DETAILS',
+      message: {
+        content: [{ type: 'text', text: 'PRIVATE_ASSISTANT_REPLY' }],
+      },
+    }])
+
+    expect(summarized).toEqual([{
+      type: 'assistant',
+      subtype: 'api_error',
+      is_error: true,
+      status: 'failed',
+      errorCategory: 'api_error',
+    }])
+    const serialized = JSON.stringify(summarized)
+    expect(serialized).not.toContain('PRIVATE_SDK_RESULT')
+    expect(serialized).not.toContain('PRIVATE_SDK_ERROR')
+    expect(serialized).not.toContain('PRIVATE_ERROR_DETAILS')
+    expect(serialized).not.toContain('PRIVATE_ASSISTANT_REPLY')
+  })
 })
 
 function sanitizeMemoryPath(value: string): string {

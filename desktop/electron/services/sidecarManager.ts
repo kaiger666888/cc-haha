@@ -1,5 +1,16 @@
 import { spawn, spawnSync, type ChildProcessByStdio } from 'node:child_process'
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import type { Readable } from 'node:stream'
 import net from 'node:net'
 import os from 'node:os'
@@ -10,6 +21,10 @@ export const SERVER_BIND_HOST = '0.0.0.0'
 export const SERVER_CONTROL_HOST = '127.0.0.1'
 export const SERVER_STARTUP_TIMEOUT_MS = 30_000
 export const SERVER_STARTUP_LOG_LIMIT = 80
+export const HOST_DIAGNOSTICS_LINE_LIMIT = 80
+export const HOST_DIAGNOSTICS_BYTE_LIMIT = 256 * 1024
+export const ELECTRON_DIAGNOSTICS_FILE_ENV = 'CC_HAHA_ELECTRON_DIAGNOSTICS_FILE'
+const HOST_DIAGNOSTICS_LINE_BYTE_LIMIT = 4096
 // Shared with the Tauri shell (src-tauri/src/lib.rs) so both desktop builds
 // reuse the same sticky port across restarts (issue #767).
 export const SERVER_STATE_FILE = 'desktop-server-state.json'
@@ -128,8 +143,18 @@ export async function reserveServerPort(
   return await reserveLocalPort(bindHost)
 }
 
-export function claudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
-  return env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+export function claudeConfigDir(
+  env: NodeJS.ProcessEnv = process.env,
+  homeDir = os.homedir(),
+): string {
+  return env.CLAUDE_CONFIG_DIR || path.join(homeDir, '.claude')
+}
+
+export function electronHostDiagnosticsFile(
+  env: NodeJS.ProcessEnv = process.env,
+  homeDir = os.homedir(),
+): string {
+  return path.join(claudeConfigDir(env, homeDir), 'cc-haha', 'diagnostics', 'electron-host.log')
 }
 
 /** Parse h5Access.fixedPort out of cc-haha/settings.json contents. */
@@ -238,10 +263,99 @@ function sleep(ms: number): Promise<void> {
 }
 
 export function pushStartupLog(logs: string[], line: string) {
-  const trimmed = line.trimEnd()
+  const trimmed = sanitizeHostDiagnostic(line, os.homedir())
   if (!trimmed) return
   if (logs.length >= SERVER_STARTUP_LOG_LIMIT) logs.shift()
   logs.push(trimmed)
+}
+
+export function appendHostDiagnostic(
+  filePath: string | undefined,
+  line: string,
+  { homeDir = os.homedir() }: { homeDir?: string } = {},
+): void {
+  if (!filePath) return
+  const tempPath = `${filePath}.${process.pid}.tmp`
+  try {
+    const sanitized = sanitizeHostDiagnostic(line, homeDir)
+    if (!sanitized) return
+    const existing = readHostDiagnosticsTail(filePath)
+    const lines = existing.trimEnd()
+      ? existing.trimEnd().split('\n').map(entry => sanitizeHostDiagnostic(entry, homeDir)).filter(Boolean)
+      : []
+    lines.push(sanitized)
+    const boundedLines: string[] = []
+    let retainedBytes = 0
+    for (const entry of lines.slice(-HOST_DIAGNOSTICS_LINE_LIMIT).reverse()) {
+      const entryBytes = Buffer.byteLength(entry, 'utf-8') + 1
+      if (retainedBytes + entryBytes > HOST_DIAGNOSTICS_BYTE_LIMIT) break
+      boundedLines.unshift(entry)
+      retainedBytes += entryBytes
+    }
+    mkdirSync(path.dirname(filePath), { recursive: true })
+    writeFileSync(tempPath, `${boundedLines.join('\n')}\n`, {
+      encoding: 'utf-8',
+      mode: 0o600,
+    })
+    renameSync(tempPath, filePath)
+  } catch {
+    try {
+      rmSync(tempPath, { force: true })
+    } catch {
+      // Best-effort cleanup must not mask the original diagnostics failure.
+    }
+    console.error('[desktop] failed to persist Electron host diagnostics')
+  }
+}
+
+function readHostDiagnosticsTail(filePath: string): string {
+  let descriptor: number | undefined
+  try {
+    descriptor = openSync(filePath, 'r')
+    const size = fstatSync(descriptor).size
+    const length = Math.min(size, HOST_DIAGNOSTICS_BYTE_LIMIT)
+    const buffer = Buffer.alloc(length)
+    const bytesRead = readSync(descriptor, buffer, 0, length, size - length)
+    const tail = buffer.subarray(0, bytesRead).toString('utf-8')
+    if (size <= length) return tail
+    const firstNewline = tail.indexOf('\n')
+    return firstNewline >= 0 ? tail.slice(firstNewline + 1) : ''
+  } catch {
+    return ''
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor)
+  }
+}
+
+export function sanitizeHostDiagnostic(line: string, homeDir = os.homedir()): string {
+  let sanitized = line
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/https?:\/\/[^\s<>"')\]}]+/gi, candidate => sanitizeUrlUserinfo(candidate))
+    .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [REDACTED]')
+    .replace(
+      /\b((?:(?:[a-z0-9]+_)*(?:api[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token|session[_-]?token|password|secret))\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+      '$1[REDACTED]',
+    )
+    .replace(/\b(?:sk-(?:ant-api03-|proj-)?|ghp_)[A-Za-z0-9_-]{8,}\b/g, '[REDACTED]')
+    .trimEnd()
+  if (homeDir) sanitized = sanitized.replaceAll(homeDir, '[HOME]')
+  return truncateUtf8(sanitized, HOST_DIAGNOSTICS_LINE_BYTE_LIMIT)
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  const buffer = Buffer.from(value, 'utf-8')
+  if (buffer.byteLength <= maxBytes) return value
+  return buffer.subarray(0, maxBytes).toString('utf-8').replace(/\uFFFD$/, '')
+}
+
+function sanitizeUrlUserinfo(candidate: string): string {
+  try {
+    const url = new URL(candidate)
+    if (!url.username && !url.password) return candidate
+    return `${url.protocol}//[REDACTED]@${url.host}${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return '[REDACTED_URL]'
+  }
 }
 
 export function formatStartupError(message: string, logs: string[]): string {
