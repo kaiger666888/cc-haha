@@ -311,6 +311,7 @@ const VALID_SESSION_PERMISSION_MODES = new Set([
   'plan',
   'bypassPermissions',
   'dontAsk',
+  'auto',
 ])
 const VALID_SESSION_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 

@@ -64,6 +64,33 @@ describe('settingsStore UI zoom', () => {
   })
 })
 
+describe('settingsStore Auto mode consent', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+  })
+
+  it('persists first-use Auto consent in user settings', async () => {
+    const updateUser = vi.fn().mockResolvedValue({})
+    vi.doMock('../api/settings', () => ({
+      settingsApi: {
+        getUser: vi.fn(),
+        updateUser,
+        getPermissionMode: vi.fn(),
+        setPermissionMode: vi.fn(),
+        getCliLauncherStatus: vi.fn(),
+      },
+    }))
+
+    const { useSettingsStore } = await import('./settingsStore')
+
+    await useSettingsStore.getState().acceptAutoModeOptIn()
+
+    expect(updateUser).toHaveBeenCalledWith({ skipAutoPermissionPrompt: true })
+    expect(useSettingsStore.getState().autoModeOptInAccepted).toBe(true)
+  })
+})
+
 describe('settingsStore update proxy persistence', () => {
   beforeEach(() => {
     vi.resetModules()

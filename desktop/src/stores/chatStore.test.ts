@@ -2866,17 +2866,17 @@ describe('chatStore history mapping', () => {
     expect(sendMock).not.toHaveBeenCalled()
   })
 
-  it('ignores permission-mode broadcasts for modes the selector cannot render', () => {
+  it('mirrors CLI-originated Auto mode without echoing it back to the server', () => {
+    sendMock.mockReset()
     updateSessionPermissionModeMock.mockReset()
 
-    // 'auto' 不在桌面端 PermissionMode 内（仅在 CLI 启用对应特性时存在），
-    // 直接忽略，避免选择器拿到无法渲染的值。
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'permission_mode_changed',
       mode: 'auto' as never,
     })
 
-    expect(updateSessionPermissionModeMock).not.toHaveBeenCalled()
+    expect(updateSessionPermissionModeMock).toHaveBeenCalledWith(TEST_SESSION_ID, 'auto')
+    expect(sendMock).not.toHaveBeenCalled()
   })
 
   it('stores terminal task notifications for agent tool cards', () => {

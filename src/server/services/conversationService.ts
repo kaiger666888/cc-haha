@@ -165,6 +165,25 @@ export class ConversationService {
   private sessions = new Map<string, SessionProcess>()
   private deletedSessions = new Set<string>()
   private providerService = new ProviderService()
+  private pendingPermissionModeChanges = new Map<string, Map<string, number>>()
+
+  private trackPendingPermissionModeChange(sessionId: string, mode: string, delta: 1 | -1): void {
+    const sessionChanges = this.pendingPermissionModeChanges.get(sessionId) ?? new Map<string, number>()
+    const nextCount = (sessionChanges.get(mode) ?? 0) + delta
+    if (nextCount > 0) {
+      sessionChanges.set(mode, nextCount)
+      this.pendingPermissionModeChanges.set(sessionId, sessionChanges)
+      return
+    }
+    sessionChanges.delete(mode)
+    if (sessionChanges.size === 0) {
+      this.pendingPermissionModeChanges.delete(sessionId)
+    }
+  }
+
+  isPermissionModeChangePending(sessionId: string, mode: string): boolean {
+    return (this.pendingPermissionModeChanges.get(sessionId)?.get(mode) ?? 0) > 0
+  }
 
   private buildSessionCliArgs(
     sessionId: string,
@@ -515,20 +534,57 @@ export class ConversationService {
     })
   }
 
-  setPermissionMode(sessionId: string, mode: string): boolean {
-    const sent = this.sendSdkMessage(sessionId, {
-      type: 'control_request',
-      request_id: crypto.randomUUID(),
-      request: {
+  async setPermissionMode(sessionId: string, mode: string, timeoutMs = 10_000): Promise<boolean> {
+    if (!this.sessions.has(sessionId)) return false
+    this.trackPendingPermissionModeChange(sessionId, mode, 1)
+
+    let confirmationSettled = false
+    let confirmationTimeout: ReturnType<typeof setTimeout>
+    let handleOutput: (msg: any) => void
+    const cleanupConfirmation = () => {
+      clearTimeout(confirmationTimeout)
+      this.removeOutputCallback(sessionId, handleOutput)
+    }
+    const confirmation = new Promise<void>((resolve, reject) => {
+      handleOutput = (msg: any) => {
+        if (
+          msg?.type !== 'system' ||
+          msg.subtype !== 'status' ||
+          msg.permissionMode !== mode
+        ) {
+          return
+        }
+
+        confirmationSettled = true
+        cleanupConfirmation()
+        resolve()
+      }
+
+      confirmationTimeout = setTimeout(() => {
+        confirmationSettled = true
+        cleanupConfirmation()
+        reject(new Error(`Timed out waiting for permission mode confirmation: ${mode}`))
+      }, timeoutMs)
+      this.onOutput(sessionId, handleOutput)
+    })
+    // requestControl can reject before the confirmation promise is awaited.
+    // Attach a handler immediately so a later confirmation timeout is never unhandled.
+    void confirmation.catch(() => undefined)
+
+    try {
+      await this.requestControl(sessionId, {
         subtype: 'set_permission_mode',
         mode,
-      },
-    })
-    if (sent) {
-      const session = this.sessions.get(sessionId)
-      if (session) session.permissionMode = mode
+      }, timeoutMs)
+      await confirmation
+
+      return this.sessions.has(sessionId)
+    } catch (err) {
+      if (!confirmationSettled) cleanupConfirmation()
+      throw err
+    } finally {
+      this.trackPendingPermissionModeChange(sessionId, mode, -1)
     }
-    return sent
   }
 
   recordSessionPermissionMode(sessionId: string, mode: string): boolean {

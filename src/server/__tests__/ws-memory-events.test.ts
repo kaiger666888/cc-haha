@@ -264,6 +264,15 @@ describe('WebSocket compact events', () => {
       { type: 'permission_mode_changed', mode: 'bypassPermissions' },
     ])
 
+    expect(translateCliMessage({
+      type: 'system',
+      subtype: 'status',
+      status: null,
+      permissionMode: 'auto',
+    }, 'session-1')).toEqual([
+      { type: 'permission_mode_changed', mode: 'auto' },
+    ])
+
     // 普通 thinking（无 permissionMode）仍走原路径，不受影响。
     expect(translateCliMessage({
       type: 'system',

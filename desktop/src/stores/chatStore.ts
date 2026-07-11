@@ -1903,9 +1903,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       case 'permission_mode_changed': {
         // CLI 是权限模式的真相来源。这里把它恢复/切换后的权威值校正到本地镜像。
         // 注意：只更新本地状态，**不要**走 setSessionPermissionMode —— 那会把
-        // set_permission_mode 再回发给 CLI 形成回环。未知模式（如未启用对应特性
-        // 的 'auto'）直接忽略，避免选择器拿到无法渲染的值。
-        const KNOWN_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions', 'dontAsk']
+        // set_permission_mode 再回发给 CLI 形成回环。未知模式直接忽略，避免
+        // 选择器拿到无法渲染的值。
+        const KNOWN_MODES: PermissionMode[] = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions', 'dontAsk']
         if (KNOWN_MODES.includes(msg.mode)) {
           useSessionStore.getState().updateSessionPermissionMode(sessionId, msg.mode)
         }

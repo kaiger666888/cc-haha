@@ -7,7 +7,13 @@
  */
 
 import type { ServerWebSocket } from 'bun'
-import type { ClientMessage, ServerMessage, StreamingFallbackCause, TokenUsage } from './events.js'
+import type {
+  ClientMessage,
+  PermissionMode,
+  ServerMessage,
+  StreamingFallbackCause,
+  TokenUsage,
+} from './events.js'
 import * as os from 'node:os'
 import {
   ConversationStartupError,
@@ -106,7 +112,19 @@ type ActiveUserTurnState = {
 const runtimeOverrides = new Map<string, RuntimeOverride>()
 const activeUserTurns = new Map<string, ActiveUserTurnState>()
 const deferredRuntimeRestarts = new Map<string, RuntimeOverride>()
-const deferredPermissionModes = new Map<string, string>()
+const deferredPermissionModes = new Map<string, PermissionMode>()
+const validPermissionModes = new Set<PermissionMode>([
+  'default',
+  'acceptEdits',
+  'plan',
+  'bypassPermissions',
+  'dontAsk',
+  'auto',
+])
+
+function isPermissionMode(value: unknown): value is PermissionMode {
+  return typeof value === 'string' && validPermissionModes.has(value as PermissionMode)
+}
 
 const runtimeTransitionPromises = new Map<string, Promise<void>>()
 const sessionStartupPromises = new Map<string, Promise<void>>()
@@ -714,6 +732,14 @@ async function handleSetPermissionMode(
   message: Extract<ClientMessage, { type: 'set_permission_mode' }>
 ): Promise<void> {
   const { sessionId } = ws.data
+  if (!isPermissionMode(message.mode)) {
+    sendMessage(ws, {
+      type: 'error',
+      message: 'Permission mode is invalid.',
+      code: 'PERMISSION_MODE_INVALID',
+    })
+    return
+  }
   const pendingStartup = sessionStartupPromises.get(sessionId)
 
   if (pendingStartup) {
@@ -759,7 +785,7 @@ export function shouldRestartForPermissionMode(
 async function applyPermissionModeToActiveSession(
   ws: ServerWebSocket<WebSocketData>,
   sessionId: string,
-  mode: string,
+  mode: PermissionMode,
 ): Promise<void> {
   const currentMode = conversationService.getSessionPermissionMode(sessionId)
   if (shouldDeferRuntimeRestartForActiveTurn(sessionId)) {
@@ -768,7 +794,7 @@ async function applyPermissionModeToActiveSession(
   }
 
   if (currentMode === mode) {
-    sendMessage(ws, { type: 'permission_mode_changed', mode })
+    sendToSession(sessionId, { type: 'permission_mode_changed', mode })
     return
   }
   const needsRestart = shouldRestartForPermissionMode(currentMode, mode)
@@ -780,13 +806,22 @@ async function applyPermissionModeToActiveSession(
     return
   }
 
-  const ok = conversationService.setPermissionMode(sessionId, mode)
-  if (!ok) {
-    console.warn(`[WS] Ignored permission mode update for inactive session ${sessionId}`)
-    return
+  try {
+    const ok = await conversationService.setPermissionMode(sessionId, mode)
+    if (!ok) {
+      console.warn(`[WS] Ignored permission mode update for inactive session ${sessionId}`)
+      return
+    }
+    await commitConfirmedPermissionMode(sessionId, mode)
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.warn(`[WS] Failed to set permission mode for ${sessionId}: ${errMsg}`)
+    sendMessage(ws, {
+      type: 'error',
+      message: `Failed to set permission mode: ${errMsg}`,
+      code: 'PERMISSION_MODE_CHANGE_FAILED',
+    })
   }
-  await persistSessionPermissionMode(sessionId, mode)
-  sendMessage(ws, { type: 'permission_mode_changed', mode })
 }
 
 async function handleSetRuntimeConfig(
@@ -884,22 +919,25 @@ async function handleSetRuntimeConfig(
 async function restartSessionWithPermissionMode(
   ws: ServerWebSocket<WebSocketData>,
   sessionId: string,
-  mode: string,
+  mode: PermissionMode,
 ): Promise<void> {
   try {
     const workDir = conversationService.getSessionWorkDir(sessionId)
-    await persistSessionPermissionMode(sessionId, mode, workDir)
     conversationService.stopSession(sessionId)
 
-    // Rebuild runtime settings (will pick up the session-scoped mode)
-    const runtimeSettings = await getRuntimeSettings(sessionId)
+    // Launch with the requested mode in-memory. Persist it only after startup
+    // succeeds so a failed bypass restart cannot leave dangerous metadata.
+    const runtimeSettings = {
+      ...await getRuntimeSettings(sessionId),
+      permissionMode: mode,
+    }
     const sdkUrl =
       `ws://${ws.data.serverHost}:${ws.data.serverPort}/sdk/${sessionId}` +
       `?token=${encodeURIComponent(crypto.randomUUID())}`
     await conversationService.startSession(sessionId, workDir, sdkUrl, runtimeSettings)
 
-    sendMessage(ws, { type: 'permission_mode_changed', mode })
-    sendMessage(ws, { type: 'status', state: 'idle' })
+    await commitConfirmedPermissionMode(sessionId, mode, workDir)
+    sendToSession(sessionId, { type: 'status', state: 'idle' })
     console.log(`[WS] Restarted CLI for ${sessionId} with permission mode: ${mode}`)
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
@@ -921,6 +959,19 @@ async function restartSessionWithPermissionMode(
     })
     sendMessage(ws, { type: 'status', state: 'idle' })
   }
+}
+
+async function commitConfirmedPermissionMode(
+  sessionId: string,
+  mode: PermissionMode,
+  knownWorkDir?: string | null,
+): Promise<void> {
+  const persisted = await persistSessionPermissionMode(sessionId, mode, knownWorkDir)
+  if (!persisted) {
+    throw new Error(`Unable to persist confirmed permission mode: ${mode}`)
+  }
+  conversationService.recordSessionPermissionMode(sessionId, mode)
+  sendToSession(sessionId, { type: 'permission_mode_changed', mode })
 }
 
 async function persistSessionPermissionMode(
@@ -1954,7 +2005,7 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
         // Shift+Tab）广播给前端。它带 status:null 但**不是** thinking 信号，
         // 必须在下面的 null→thinking 兜底之前拦截，否则字段会被丢弃，桌面端
         // 选择器就会一直卡在"计划模式"。
-        if (typeof cliMsg.permissionMode === 'string') {
+        if (isPermissionMode(cliMsg.permissionMode)) {
           return [{ type: 'permission_mode_changed', mode: cliMsg.permissionMode }]
         }
         if (cliMsg.status == null) {
@@ -2614,6 +2665,14 @@ function bindClientSessionOutput(
       return
     }
 
+    const cliPermissionMode = getCliPermissionModeBroadcast(cliMsg)
+    if (
+      cliPermissionMode &&
+      conversationService.isPermissionModeChangePending(sessionId, cliPermissionMode)
+    ) {
+      return
+    }
+
     handleCliPermissionModeBroadcast(sessionId, cliMsg)
     const serverMsgs = translateCliMessage(cliMsg, sessionId)
     for (const msg of serverMsgs) {
@@ -2626,11 +2685,11 @@ function bindClientSessionOutput(
   conversationService.onOutput(sessionId, callback)
 }
 
-function getCliPermissionModeBroadcast(cliMsg: any): string | null {
+function getCliPermissionModeBroadcast(cliMsg: any): PermissionMode | null {
   if (
     cliMsg?.type === 'system' &&
     cliMsg.subtype === 'status' &&
-    typeof cliMsg.permissionMode === 'string'
+    isPermissionMode(cliMsg.permissionMode)
   ) {
     return cliMsg.permissionMode
   }

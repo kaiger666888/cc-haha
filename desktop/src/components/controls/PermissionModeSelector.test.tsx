@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import '@testing-library/jest-dom'
 
@@ -21,6 +21,8 @@ vi.mock('../../i18n', () => ({
     'permMode.askPermDesc': 'Ask before changing files or running commands',
     'permMode.autoAccept': 'Auto accept edits',
     'permMode.autoAcceptDesc': 'Automatically accept edit operations',
+    'permMode.autoMode': 'Auto mode',
+    'permMode.autoModeDesc': 'Automatically review tool calls before running them',
     'permMode.planMode': 'Plan mode',
     'permMode.planModeDesc': 'Plan before executing',
     'permMode.bypass': 'Bypass permissions',
@@ -28,6 +30,7 @@ vi.mock('../../i18n', () => ({
     'permMode.executionPermissions': 'Execution Permissions',
     'permMode.label.default': 'Ask permissions',
     'permMode.label.acceptEdits': 'Auto accept edits',
+    'permMode.label.auto': 'Auto mode',
     'permMode.label.plan': 'Plan mode',
     'permMode.label.bypassPermissions': 'Bypass permissions',
     'permMode.label.dontAsk': 'Bypass permissions',
@@ -39,6 +42,10 @@ vi.mock('../../i18n', () => ({
     'permMode.permPackages': 'Install packages',
     'permMode.enableBypassBtn': 'Enable bypass',
     'permMode.disabledDuringTurn': 'Cannot switch permissions while session is active',
+    'permMode.enableAutoTitle': 'Enable Auto mode?',
+    'permMode.enableAutoBody': 'Auto mode reduces prompts but does not guarantee safety.',
+    'permMode.enableAutoDetail': 'Claude reviews tool calls and blocks actions it considers risky.',
+    'permMode.enableAutoBtn': 'Enable Auto mode',
     'common.cancel': 'Cancel',
     'tabs.close': 'Close',
   }[key] ?? key),
@@ -49,6 +56,7 @@ import { useChatStore, type PerSessionState } from '../../stores/chatStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useTabStore } from '../../stores/tabStore'
+import { useUIStore } from '../../stores/uiStore'
 
 const initialSetSessionPermissionMode = useChatStore.getState().setSessionPermissionMode
 
@@ -84,6 +92,7 @@ describe('PermissionModeSelector', () => {
     })
     useSessionStore.setState({ sessions: [], activeSessionId: null })
     useTabStore.setState({ activeTabId: null, tabs: [] })
+    useUIStore.setState({ toasts: [] })
   })
 
   it('updates the active session without writing the global default mode', () => {
@@ -416,6 +425,159 @@ describe('PermissionModeSelector', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /Auto accept edits/ }))
 
     expect(onChange).toHaveBeenCalledWith('acceptEdits')
+  })
+
+  it('shows Auto beside the existing permission modes', () => {
+    render(<PermissionModeSelector value="default" onChange={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+
+    expect(screen.getByRole('menuitem', { name: /Auto mode/ })).toBeInTheDocument()
+  })
+
+  it('does not change mode when first-use Auto confirmation is cancelled', () => {
+    const onChange = vi.fn()
+    useSettingsStore.setState({ autoModeOptInAccepted: false } as never)
+
+    render(<PermissionModeSelector value="default" onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Auto mode/ }))
+
+    expect(screen.getByRole('dialog', { name: 'Enable Auto mode?' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: 'Enable Auto mode?' })).not.toBeInTheDocument()
+  })
+
+  it('persists first-use consent before selecting Auto', async () => {
+    const onChange = vi.fn()
+    const acceptAutoModeOptIn = vi.fn().mockResolvedValue(undefined)
+    useSettingsStore.setState({
+      autoModeOptInAccepted: false,
+      acceptAutoModeOptIn,
+    } as never)
+
+    render(<PermissionModeSelector value="default" onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Auto mode/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Auto mode' }))
+
+    await waitFor(() => {
+      expect(acceptAutoModeOptIn).toHaveBeenCalledOnce()
+      expect(onChange).toHaveBeenCalledWith('auto')
+    })
+  })
+
+  it('applies first-use Auto consent to the active session', async () => {
+    const setSessionPermissionMode = vi.fn()
+    const acceptAutoModeOptIn = vi.fn().mockResolvedValue(undefined)
+    useSettingsStore.setState({
+      autoModeOptInAccepted: false,
+      acceptAutoModeOptIn,
+    } as never)
+    useChatStore.setState({
+      setSessionPermissionMode,
+      sessions: {
+        'current-tab': makeChatSession('idle'),
+      },
+    } as Partial<ReturnType<typeof useChatStore.getState>>)
+    useTabStore.setState({
+      activeTabId: 'current-tab',
+      tabs: [{ sessionId: 'current-tab', title: 'Current', type: 'session', status: 'idle' }],
+    })
+
+    render(<PermissionModeSelector />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Auto mode/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Auto mode' }))
+
+    await waitFor(() => {
+      expect(setSessionPermissionMode).toHaveBeenCalledWith('current-tab', 'auto')
+    })
+  })
+
+  it('does not apply Auto when the active tab changes while consent is saving', async () => {
+    let resolveConsent!: () => void
+    const onChange = vi.fn()
+    const acceptAutoModeOptIn = vi.fn(() => new Promise<void>((resolve) => {
+      resolveConsent = resolve
+    }))
+    useSettingsStore.setState({
+      autoModeOptInAccepted: false,
+      acceptAutoModeOptIn,
+    } as never)
+    useTabStore.setState({
+      activeTabId: 'current-tab',
+      tabs: [{ sessionId: 'current-tab', title: 'Current', type: 'session', status: 'idle' }],
+    })
+
+    render(<PermissionModeSelector value="default" onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Auto mode/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Auto mode' }))
+    act(() => {
+      useTabStore.setState({
+        activeTabId: 'next-tab',
+        tabs: [{ sessionId: 'next-tab', title: 'Next', type: 'session', status: 'idle' }],
+      })
+      resolveConsent()
+    })
+
+    await waitFor(() => expect(acceptAutoModeOptIn).toHaveBeenCalledOnce())
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('keeps the Auto confirmation open and reports a consent persistence failure', async () => {
+    const onChange = vi.fn()
+    const acceptAutoModeOptIn = vi.fn().mockRejectedValue(new Error('Could not save Auto consent'))
+    useSettingsStore.setState({
+      autoModeOptInAccepted: false,
+      acceptAutoModeOptIn,
+    } as never)
+
+    render(<PermissionModeSelector value="default" onChange={onChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Auto mode/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Auto mode' }))
+
+    await waitFor(() => {
+      expect(useUIStore.getState().toasts.at(-1)).toMatchObject({
+        type: 'error',
+        message: 'Could not save Auto consent',
+      })
+    })
+    expect(screen.getByRole('dialog', { name: 'Enable Auto mode?' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enable Auto mode' })).toBeEnabled()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('keeps Auto behind the active-turn guard', () => {
+    const setSessionPermissionMode = vi.fn()
+    useSettingsStore.setState({ autoModeOptInAccepted: true } as never)
+    useChatStore.setState({
+      setSessionPermissionMode,
+      sessions: {
+        'current-tab': makeChatSession('thinking'),
+      },
+    } as Partial<ReturnType<typeof useChatStore.getState>>)
+    useTabStore.setState({
+      activeTabId: 'current-tab',
+      tabs: [{ sessionId: 'current-tab', title: 'Current', type: 'session', status: 'running' }],
+    })
+
+    render(<PermissionModeSelector />)
+
+    const trigger = screen.getByRole('button', { name: 'Ask permissions' })
+    expect(trigger).toBeDisabled()
+    fireEvent.click(trigger)
+    expect(screen.queryByRole('menuitem', { name: /Auto mode/ })).not.toBeInTheDocument()
+    expect(setSessionPermissionMode).not.toHaveBeenCalled()
   })
 
   it('closes the permission menu when its trigger is clicked again', () => {

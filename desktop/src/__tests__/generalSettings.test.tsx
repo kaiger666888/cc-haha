@@ -209,6 +209,7 @@ describe('Settings > General tab', () => {
       locale: 'en',
       theme: 'light',
       permissionMode: 'default',
+      autoModeOptInAccepted: false,
       thinkingEnabled: true,
       autoDreamEnabled: false,
       skipWebFetchPreflight: true,
@@ -261,6 +262,9 @@ describe('Settings > General tab', () => {
       }),
       setPermissionMode: vi.fn().mockImplementation(async (permissionMode: PermissionMode) => {
         useSettingsStore.setState({ permissionMode })
+      }),
+      acceptAutoModeOptIn: vi.fn().mockImplementation(async () => {
+        useSettingsStore.setState({ autoModeOptInAccepted: true } as never)
       }),
       setSkipWebFetchPreflight: vi.fn().mockImplementation(async (enabled: boolean) => {
         useSettingsStore.setState({ skipWebFetchPreflight: enabled })
@@ -772,6 +776,29 @@ describe('Settings > General tab', () => {
 
     expect(useSettingsStore.getState().setPermissionMode).toHaveBeenCalledWith('bypassPermissions')
     expect(useSettingsStore.getState().permissionMode).toBe('bypassPermissions')
+  })
+
+  it('confirms first use before saving Auto as the new-session default', async () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Auto mode/ }))
+
+    expect(useSettingsStore.getState().setPermissionMode).not.toHaveBeenCalledWith('auto')
+    const dialog = screen.getByRole('dialog', { name: 'Enable Auto mode?' })
+
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Enable Auto mode' }))
+    })
+
+    expect(useSettingsStore.getState().acceptAutoModeOptIn).toHaveBeenCalledOnce()
+    expect(useSettingsStore.getState().setPermissionMode).toHaveBeenCalledWith('auto')
+    expect(useSettingsStore.getState().permissionMode).toBe('auto')
   })
 
   it('keeps Auto-dream disabled by default and confirms before enabling it', async () => {

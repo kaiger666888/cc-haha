@@ -340,6 +340,15 @@ describe('SettingsService', () => {
     expect(mode).toBe('plan')
   })
 
+  it('should persist auto as the user default permission mode', async () => {
+    const svc = new SettingsService()
+
+    await svc.setPermissionMode('auto')
+
+    expect(await svc.getPermissionMode()).toBe('auto')
+    expect(await svc.getUserSettings()).toMatchObject({ defaultMode: 'auto' })
+  })
+
   it('should reject invalid permission mode', async () => {
     const svc = new SettingsService()
     await expect(svc.setPermissionMode('invalid')).rejects.toThrow('Invalid permission mode')
@@ -583,6 +592,18 @@ describe('Settings API', () => {
     const body = await res.json()
     expect(body.ok).toBe(true)
     expect(body.mode).toBe('bypassPermissions')
+  })
+
+  it('PUT /api/permissions/mode should accept auto', async () => {
+    const { req, url, segments } = makeRequest('PUT', '/api/permissions/mode', {
+      mode: 'auto',
+    })
+
+    const res = await handleSettingsApi(req, url, segments)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, mode: 'auto' })
+    expect(await new SettingsService().getPermissionMode()).toBe('auto')
   })
 
   it('PUT /api/permissions/mode should reject invalid mode', async () => {
