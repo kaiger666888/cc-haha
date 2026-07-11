@@ -129,6 +129,7 @@ export type PerSessionState = {
   backgroundAgentTasks?: Record<string, BackgroundAgentTask>
   stoppingBackgroundTaskIds?: Record<string, boolean>
   suppressNextTaskNotificationResponse?: boolean
+  replaceHistoryOnCompletion?: boolean
   activeGoal?: ActiveGoalState | null
   elapsedTimer: ReturnType<typeof setInterval> | null
   composerPrefill?: {
@@ -169,6 +170,7 @@ const DEFAULT_SESSION_STATE: PerSessionState = {
   backgroundAgentTasks: {},
   stoppingBackgroundTaskIds: {},
   suppressNextTaskNotificationResponse: false,
+  replaceHistoryOnCompletion: false,
   activeGoal: null,
   elapsedTimer: null,
   composerPrefill: null,
@@ -883,6 +885,24 @@ function refreshCompletedTranscriptHistory(
   })
 }
 
+function reconcileCompletedTranscriptHistory(
+  get: () => ChatStore,
+  sessionId: string,
+  replaceHistory: boolean,
+): void {
+  if (!replaceHistory) {
+    refreshCompletedTranscriptHistory(get, sessionId)
+    return
+  }
+
+  const session = get().sessions[sessionId]
+  if (!session) return
+  void get().reloadHistory(sessionId, {
+    messages: session.messages,
+    backgroundAgentTasks: session.backgroundAgentTasks,
+  })
+}
+
 function normalizeMemoryEventFiles(data: unknown): MemoryEventFile[] {
   if (!data || typeof data !== 'object') return []
   const writtenPaths = (data as { writtenPaths?: unknown }).writtenPaths
@@ -1199,6 +1219,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             chatState: 'thinking',
             elapsedSeconds: 0,
             suppressNextTaskNotificationResponse: false,
+            replaceHistoryOnCompletion: false,
             streamingText: '',
             streamingResponseChars: 0,
             statusVerb: isMemberSession ? '' : randomSpinnerVerb(),
@@ -1669,6 +1690,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             .filter((message) => message.id !== messageId),
           ...(pendingText.trim() ? { streamingText: '' } : {}),
           suppressNextTaskNotificationResponse: false,
+          replaceHistoryOnCompletion: false,
         }
       }),
     }))
@@ -1692,6 +1714,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       apiRetry: null,
       streamingFallback: null,
       suppressNextTaskNotificationResponse: false,
+      replaceHistoryOnCompletion: false,
       queuedUserMessages: [],
     })) }))
   },
@@ -1765,6 +1788,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               apiRetry: null,
               streamingFallback: null,
               statusVerb: '',
+              replaceHistoryOnCompletion: true,
             }
           })
           useTabStore.getState().updateTabStatus(sessionId, 'running')
@@ -2388,9 +2412,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             streamingText: '',
             streamingToolInput: '',
             suppressNextTaskNotificationResponse: false,
+            replaceHistoryOnCompletion: false,
           }))
           useTabStore.getState().updateTabStatus(sessionId, hasRunningBackgroundAgents ? 'running' : 'idle')
-          refreshCompletedTranscriptHistory(get, sessionId)
+          reconcileCompletedTranscriptHistory(
+            get,
+            sessionId,
+            session.replaceHistoryOnCompletion === true,
+          )
           for (const queuedMessage of get().sessions[sessionId]?.queuedUserMessages ?? []) {
             get().sendQueuedUserMessage(sessionId, queuedMessage.id)
           }
@@ -2425,6 +2454,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           elapsedTimer: null,
           apiRetry: null,
           streamingFallback: null,
+          replaceHistoryOnCompletion: false,
         }))
         useTabStore.getState().updateTabStatus(sessionId, hasRunningBackgroundAgents ? 'running' : 'idle')
         const notification = wasAgentRunning && appendedCompletionMessage
@@ -2439,7 +2469,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             target: { type: 'session', sessionId },
           })
         }
-        refreshCompletedTranscriptHistory(get, sessionId)
+        reconcileCompletedTranscriptHistory(
+          get,
+          sessionId,
+          session.replaceHistoryOnCompletion === true,
+        )
         for (const queuedMessage of get().sessions[sessionId]?.queuedUserMessages ?? []) {
           get().sendQueuedUserMessage(sessionId, queuedMessage.id)
         }
@@ -2457,6 +2491,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             ...(pendingText.trim() ? { streamingText: '' } : {}),
             activeThinkingId: null,
             suppressNextTaskNotificationResponse: false,
+            replaceHistoryOnCompletion: false,
           }
         })
         break

@@ -3982,6 +3982,67 @@ describe('chatStore history mapping', () => {
     })
   })
 
+  it('replaces orphan thinking with authoritative history when a reconnected turn completes', async () => {
+    vi.mocked(sessionsApi.getMessages).mockClear()
+    vi.mocked(sessionsApi.getMessages).mockResolvedValue({
+      messages: [
+        {
+          id: 'persisted-user',
+          type: 'user',
+          timestamp: '2026-07-11T00:00:00.000Z',
+          content: 'Finish the foreground task',
+        },
+        {
+          id: 'persisted-assistant',
+          type: 'assistant',
+          timestamp: '2026-07-11T00:00:01.000Z',
+          content: [{ type: 'text', text: 'Foreground task finished.' }],
+        },
+      ],
+    })
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          chatState: 'idle',
+          messages: [],
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'session_state',
+      turnState: 'running',
+    })
+    await vi.waitFor(() => {
+      expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toHaveLength(2)
+    })
+
+    // The task_notification that should suppress this output arrived while
+    // the renderer was disconnected, so only the late follow-up is observed.
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'thinking',
+      text: 'orphan background follow-up thinking',
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toContainEqual(
+      expect.objectContaining({
+        type: 'thinking',
+        content: 'orphan background follow-up thinking',
+      }),
+    )
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 5, output_tokens: 8 },
+    })
+
+    await vi.waitFor(() => {
+      expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).not.toContainEqual(
+        expect.objectContaining({ type: 'thinking' }),
+      )
+    })
+    expect(sessionsApi.getMessages).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps the tab running for background agents when reconnect reconciliation finds the foreground idle', () => {
     useChatStore.setState({
       sessions: {
