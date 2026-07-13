@@ -350,7 +350,7 @@ describe('MessageList nested tool calls', () => {
     expect(screen.getByText('latest assistant reply')).toBeTruthy()
   })
 
-  it('shows the conversation navigator for normal desktop transcripts and hides it in compact mode', () => {
+  it('keeps the conversation navigator available in compact desktop transcripts', () => {
     useChatStore.setState({
       sessions: {
         [ACTIVE_TAB]: makeSessionState({
@@ -368,7 +368,72 @@ describe('MessageList nested tool calls', () => {
     expect(screen.getByRole('navigation', { name: 'Conversation navigation' })).toBeTruthy()
 
     rerender(<MessageList compact />)
-    expect(screen.queryByRole('navigation', { name: 'Conversation navigation' })).toBeNull()
+    expect(screen.getByRole('navigation', { name: 'Conversation navigation' })).toBeTruthy()
+  })
+
+  it('adapts the conversation navigator when the chat column is resized by adjacent panels', () => {
+    const observers: Array<{
+      callback: ResizeObserverCallback
+      targets: Element[]
+    }> = []
+    class TestResizeObserver {
+      targets: Element[] = []
+      observe = vi.fn((target: Element) => {
+        this.targets.push(target)
+      })
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+
+      constructor(callback: ResizeObserverCallback) {
+        observers.push({ callback, targets: this.targets })
+      }
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            { id: 'user-1', type: 'user_text', content: 'First prompt', timestamp: 1 },
+            { id: 'assistant-1', type: 'assistant_text', content: 'First answer', timestamp: 2 },
+            { id: 'user-2', type: 'user_text', content: 'Second prompt', timestamp: 3 },
+            { id: 'assistant-2', type: 'assistant_text', content: 'Second answer', timestamp: 4 },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+    const messageList = screen.getByTestId('message-list')
+    const scroller = messageList.querySelector('.chat-scroll-area') as HTMLElement
+    const layoutObserver = observers.find(({ targets }) => targets.includes(messageList))
+    expect(layoutObserver).toBeTruthy()
+    expect(screen.getByTestId('conversation-navigator').getAttribute('data-mode')).toBe('full')
+
+    const resizeTo = (width: number) => {
+      act(() => {
+        layoutObserver?.callback([{
+          target: messageList,
+          contentRect: { width },
+        } as unknown as ResizeObserverEntry], {} as ResizeObserver)
+      })
+    }
+
+    resizeTo(900)
+    expect(screen.getByTestId('conversation-navigator').getAttribute('data-mode')).toBe('compact')
+    expect(scroller.className.split(/\s+/)).toContain('pl-9')
+
+    resizeTo(640)
+    expect(screen.getByTestId('conversation-navigator').getAttribute('data-mode')).toBe('compact')
+
+    resizeTo(520)
+    expect(screen.getByTestId('conversation-navigator').getAttribute('data-mode')).toBe('edge')
+    expect(scroller.className.split(/\s+/)).toContain('pl-6')
+
+    resizeTo(1000)
+    expect(screen.getByTestId('conversation-navigator').getAttribute('data-mode')).toBe('full')
+    expect(scroller.className.split(/\s+/)).not.toContain('pl-9')
+    expect(scroller.className.split(/\s+/)).not.toContain('pl-6')
   })
 
   it('updates the active conversation marker while the transcript scrolls', () => {

@@ -27,6 +27,7 @@ import {
   buildConversationNavigationItems,
   ConversationNavigator,
   type ConversationNavigationItem,
+  type ConversationNavigationMode,
 } from './ConversationNavigator'
 import type { AgentTaskNotification, UIMessage } from '../../types/chat'
 import { formatTokenCount } from '../../lib/formatTokenCount'
@@ -952,6 +953,8 @@ const VIRTUAL_MAX_ITEM_HEIGHT = 24_000
 const CONTENT_RESIZE_FOLLOW_MIN_DELTA_PX = 2
 const USER_SCROLL_INTENT_WINDOW_MS = 500
 const CONVERSATION_NAVIGATION_MIN_ITEMS = 4
+const CONVERSATION_NAVIGATION_FULL_MIN_WIDTH_PX = 960
+const CONVERSATION_NAVIGATION_COMPACT_MIN_WIDTH_PX = 560
 const STREAMING_ASSISTANT_NAVIGATION_KEY = 'streaming-assistant-message'
 const EMPTY_MESSAGES: UIMessage[] = []
 const EMPTY_AGENT_TASK_NOTIFICATIONS: Record<string, AgentTaskNotification> = {}
@@ -1466,6 +1469,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     chatState === 'tool_executing' ||
     hasPendingPermissionCard ||
     (chatState === 'thinking' && Boolean(activeThinkingId))
+  const messageListRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const scrollContentRef = useRef<HTMLDivElement>(null)
   const virtualItemHeightsRef = useRef<Map<string, number>>(
@@ -1503,6 +1507,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
   })
   const [measuredItemsVersion, setMeasuredItemsVersion] = useState(0)
   const [highlightedNavigationItemKey, setHighlightedNavigationItemKey] = useState<string | null>(null)
+  const [messageListWidth, setMessageListWidth] = useState<number | null>(null)
   const branchActionsDisabled =
     isMemberSession ||
     chatState !== 'idle' ||
@@ -1524,6 +1529,27 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     if (workspaceOriginRestoreFrameRef.current !== null) {
       cancelAnimationFrame(workspaceOriginRestoreFrameRef.current)
     }
+  }, [])
+
+  useLayoutEffect(() => {
+    const messageList = messageListRef.current
+    if (!messageList) return
+
+    const updateWidth = (width: number) => {
+      const roundedWidth = Math.round(width)
+      if (roundedWidth <= 0) return
+      setMessageListWidth((current) => current === roundedWidth ? current : roundedWidth)
+    }
+
+    updateWidth(messageList.getBoundingClientRect().width || messageList.clientWidth)
+    if (typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries.find((candidate) => candidate.target === messageList)
+      if (entry) updateWidth(entry.contentRect.width)
+    })
+    observer.observe(messageList)
+    return () => observer.disconnect()
   }, [])
 
   const syncVirtualViewportFromContainer = useCallback((container: HTMLElement) => {
@@ -1920,10 +1946,26 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     ),
     [conversationNavigationItems, virtualTranscriptWindow.offsets, virtualViewport],
   )
+  const conversationNavigationMode: ConversationNavigationMode =
+    messageListWidth === null || messageListWidth >= CONVERSATION_NAVIGATION_FULL_MIN_WIDTH_PX
+      ? 'full'
+      : messageListWidth >= CONVERSATION_NAVIGATION_COMPACT_MIN_WIDTH_PX
+        ? 'compact'
+        : 'edge'
   const showConversationNavigator =
-    !compact &&
     !isTouchH5Document() &&
     conversationNavigationItems.length >= CONVERSATION_NAVIGATION_MIN_ITEMS
+  const chatScrollPaddingClass = compact
+    ? showConversationNavigator && conversationNavigationMode === 'compact'
+      ? 'pb-5 pl-9 pr-3 py-3'
+      : showConversationNavigator && conversationNavigationMode === 'edge'
+        ? 'pb-5 pl-6 pr-3 py-3'
+        : 'px-3 py-3 pb-5'
+    : showConversationNavigator && conversationNavigationMode === 'compact'
+      ? 'pl-9 pr-4 py-4'
+      : showConversationNavigator && conversationNavigationMode === 'edge'
+        ? 'pl-6 pr-4 py-4'
+        : 'px-4 py-4'
   const confirmTurnCard = useMemo(
     () => visibleTurnChangeCards.find((card) => card.target.messageId === turnUndoConfirmTargetId) ?? null,
     [turnUndoConfirmTargetId, visibleTurnChangeCards],
@@ -2331,7 +2373,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
   }
 
   return (
-    <div className="relative min-h-0 flex-1">
+    <div ref={messageListRef} data-testid="message-list" className="relative min-h-0 flex-1">
       <div
         ref={scrollContainerRef}
         onScroll={updateAutoScrollState}
@@ -2339,7 +2381,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
         onPointerDown={markUserScrollIntent}
         onTouchStart={markUserScrollIntent}
         onKeyDown={handleKeyDownScrollIntent}
-        className={`${CHAT_SCROLL_AREA_CLASS} h-full overflow-y-auto ${compact ? 'px-3 py-3 pb-5' : 'px-4 py-4'}`}
+        className={`${CHAT_SCROLL_AREA_CLASS} h-full overflow-y-auto ${chatScrollPaddingClass}`}
       >
         <div
           ref={scrollContentRef}
@@ -2410,6 +2452,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
 
       {showConversationNavigator ? (
         <ConversationNavigator
+          mode={conversationNavigationMode}
           items={conversationNavigationItems}
           activeItemId={activeConversationNavigationItemId}
           onNavigate={handleNavigateToConversationItem}

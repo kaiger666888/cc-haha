@@ -84,6 +84,7 @@ describe('ConversationNavigator', () => {
   it('renders ordered role markers and identifies the active target', () => {
     render(
       <ConversationNavigator
+        mode="full"
         items={[
           { id: 'user-1', renderItemKey: 'user-1', renderIndex: 0, role: 'user', preview: 'First prompt', attachmentCount: 0 },
           { id: 'assistant-1', renderItemKey: 'assistant-1', renderIndex: 1, role: 'assistant', preview: 'First answer', attachmentCount: 0 },
@@ -97,6 +98,55 @@ describe('ConversationNavigator', () => {
     expect(markers.map((marker) => marker.getAttribute('data-role'))).toEqual(['user', 'assistant'])
     expect(markers[0]?.getAttribute('aria-current')).toBeNull()
     expect(markers[1]?.getAttribute('aria-current')).toBe('location')
+
+    const markerBars = markers.map((marker) => marker.querySelector('[aria-hidden="true"]'))
+    expect(screen.getByTestId('conversation-navigator').getAttribute('data-mode')).toBe('full')
+    expect(markerBars.every((bar) => bar?.className.includes('w-3'))).toBe(true)
+    expect(markerBars.every((bar) => bar?.className.includes('group-hover:w-5'))).toBe(true)
+    expect(markerBars.every((bar) => bar?.className.includes('group-focus-visible:w-5'))).toBe(true)
+    expect(markerBars[1]?.className).toContain('bg-[var(--color-brand)]')
+    expect(markerBars[1]?.className.split(/\s+/)).not.toContain('w-5')
+  })
+
+  it('uses equal shorter marker geometry in compact mode', () => {
+    render(
+      <ConversationNavigator
+        mode="compact"
+        items={[
+          { id: 'user-1', renderItemKey: 'user-1', renderIndex: 0, role: 'user', preview: 'First prompt', attachmentCount: 0 },
+          { id: 'assistant-1', renderItemKey: 'assistant-1', renderIndex: 1, role: 'assistant', preview: 'First answer', attachmentCount: 0 },
+        ]}
+        activeItemId="user-1"
+        onNavigate={vi.fn()}
+      />,
+    )
+
+    const markers = screen.getAllByRole('button')
+    const markerBars = markers.map((marker) => marker.querySelector('[aria-hidden="true"]'))
+    expect(screen.getByTestId('conversation-navigator').getAttribute('data-mode')).toBe('compact')
+    expect(markerBars.every((bar) => bar?.className.includes('w-2.5'))).toBe(true)
+    expect(markerBars.every((bar) => bar?.className.includes('group-hover:w-4'))).toBe(true)
+    expect(markerBars.every((bar) => bar?.className.includes('motion-reduce:transition-none'))).toBe(true)
+  })
+
+  it('uses an edge-sized lane when the transcript becomes narrow', () => {
+    render(
+      <ConversationNavigator
+        mode="edge"
+        items={[
+          { id: 'user-1', renderItemKey: 'user-1', renderIndex: 0, role: 'user', preview: 'First prompt', attachmentCount: 0 },
+          { id: 'assistant-1', renderItemKey: 'assistant-1', renderIndex: 1, role: 'assistant', preview: 'First answer', attachmentCount: 0 },
+        ]}
+        activeItemId="assistant-1"
+        onNavigate={vi.fn()}
+      />,
+    )
+
+    const markers = screen.getAllByRole('button')
+    const markerBars = markers.map((marker) => marker.querySelector('[aria-hidden="true"]'))
+    expect(screen.getByTestId('conversation-navigator').getAttribute('data-mode')).toBe('edge')
+    expect(markerBars.every((bar) => bar?.className.includes('w-1.5'))).toBe(true)
+    expect(markerBars.every((bar) => bar?.className.includes('group-hover:w-3'))).toBe(true)
   })
 
   it('shows the preview on hover or focus and navigates on click', () => {
@@ -111,6 +161,7 @@ describe('ConversationNavigator', () => {
     }
     render(
       <ConversationNavigator
+        mode="full"
         items={[item]}
         activeItemId="user-1"
         onNavigate={onNavigate}
