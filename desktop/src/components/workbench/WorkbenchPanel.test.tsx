@@ -71,6 +71,18 @@ describe('WorkbenchPanel', () => {
     expect(screen.getByRole('tab', { name: 'Files' })).toHaveAttribute('aria-selected', 'false')
   })
 
+  it('exposes a single compact workbench navigation landmark', () => {
+    render(<WorkbenchPanel sessionId={SESSION_ID} variant="tab" />)
+
+    const navigation = screen.getByTestId('workbench-navigation')
+    expect(navigation).toHaveAttribute('aria-label', 'Workbench navigation')
+    expect(navigation).toContainElement(screen.getByRole('button', { name: 'Back to conversation' }))
+    expect(navigation).toContainElement(screen.getByRole('tablist', { name: 'Workbench mode' }))
+    expect(navigation).toContainElement(screen.getByRole('button', { name: 'Close' }))
+    expect(navigation.className).toContain('h-12')
+    expect(screen.getByRole('tablist', { name: 'Workbench mode' }).className).not.toContain('border')
+  })
+
   it('switching to the browser tab calls setMode("browser")', () => {
     render(<WorkbenchPanel sessionId={SESSION_ID} />)
     expect(useWorkspacePanelStore.getState().getMode(SESSION_ID)).toBe('workspace')

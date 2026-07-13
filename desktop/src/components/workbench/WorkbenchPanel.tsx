@@ -72,12 +72,16 @@ export function WorkbenchPanel({ sessionId, variant = 'panel', onClose }: Workbe
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-[var(--color-surface)]">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-2.5">
+      <header
+        data-testid="workbench-navigation"
+        aria-label={t('workbench.navigation')}
+        className="flex h-12 shrink-0 items-center gap-2.5 border-b border-[var(--color-text-primary)]/10 bg-[var(--color-surface)] px-4"
+      >
         {isTabVariant && (
           <button
             type="button"
             onClick={handleReturn}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[7px] px-2 text-[12px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] px-2 text-[12px] font-medium text-[var(--color-text-secondary)] transition-[color,background-color,transform] duration-200 ease-out hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-info)]/30"
           >
             <ArrowLeft size={15} strokeWidth={2} aria-hidden="true" />
             <span>{t('workbench.backToConversation')}</span>
@@ -86,7 +90,7 @@ export function WorkbenchPanel({ sessionId, variant = 'panel', onClose }: Workbe
         <div
           role="tablist"
           aria-label={t('workbench.modeSwitch')}
-          className="inline-flex items-center gap-0.5 rounded-[8px] border border-[var(--color-border)] bg-[var(--color-surface)] p-0.5"
+          className="inline-flex items-center gap-0.5 rounded-[8px] bg-[var(--color-surface-container)] p-0.5"
         >
           {MODE_ITEMS.map(({ mode: itemMode, labelKey, Icon }) => {
             const isActive = mode === itemMode
@@ -97,9 +101,9 @@ export function WorkbenchPanel({ sessionId, variant = 'panel', onClose }: Workbe
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => handleModeSelect(itemMode)}
-                className={`inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35 ${
+                className={`inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2.5 text-[12px] font-medium transition-[color,background-color,transform] duration-200 ease-out active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-info)]/30 ${
                   isActive
-                    ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)] shadow-[inset_0_0_0_1px_var(--color-border-focus)]'
+                    ? 'bg-[var(--color-surface)] text-[var(--color-text-primary)] shadow-[0_1px_2px_rgba(15,23,42,0.08)]'
                     : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]'
                 }`}
               >
@@ -117,7 +121,7 @@ export function WorkbenchPanel({ sessionId, variant = 'panel', onClose }: Workbe
               aria-label={t('workbench.expand')}
               title={t('workbench.expand')}
               onClick={handleExpand}
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-info)]/30"
             >
               <Maximize2 size={15} strokeWidth={2} aria-hidden="true" />
             </button>
@@ -126,12 +130,12 @@ export function WorkbenchPanel({ sessionId, variant = 'panel', onClose }: Workbe
             type="button"
             aria-label={t('workbench.close')}
             onClick={handleClose}
-            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35"
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-info)]/30"
           >
             <X size={16} strokeWidth={2} aria-hidden="true" />
           </button>
         </div>
-      </div>
+      </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
         {mode === 'browser' ? (

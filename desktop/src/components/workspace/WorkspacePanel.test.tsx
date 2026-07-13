@@ -81,10 +81,13 @@ async function flushReactWork() {
   })
 }
 
-async function renderPanel(sessionId: string) {
+async function renderPanel(
+  sessionId: string,
+  props: { embedded?: boolean; forceVisible?: boolean } = {},
+) {
   let view!: ReturnType<typeof render>
   await act(async () => {
-    view = render(<WorkspacePanel sessionId={sessionId} />)
+    view = render(<WorkspacePanel sessionId={sessionId} {...props} />)
     await Promise.resolve()
   })
   return view
@@ -392,7 +395,10 @@ describe('WorkspacePanel', () => {
 
     expect(view.getByPlaceholderText('Filter files...')).toBeTruthy()
 
-    await clickElement(await view.findByText('src/app.ts'))
+    await waitFor(() => {
+      expect(view.container.querySelector('[data-workspace-file-path="src/app.ts"]')).toBeTruthy()
+    })
+    await clickElement(view.container.querySelector('[data-workspace-file-path="src/app.ts"]')!)
 
     await waitFor(() => {
       expect(getMocks().getWorkspaceDiffMock).toHaveBeenCalledWith('session-changed', 'src/app.ts')
@@ -410,6 +416,14 @@ describe('WorkspacePanel', () => {
     await waitFor(() => {
       expect(view.getByTestId('workspace-code').textContent).toContain('console.log("new")')
     })
+    expect(view.queryByRole('tablist', { name: 'Preview tabs' })).toBeNull()
+    expect(view.getByTestId('workspace-preview-header').textContent).toContain('src/app.ts')
+    expect(view.getByTestId('workspace-review-layout').className).toContain('grid-cols-1')
+    expect(view.queryByTestId('workspace-file-navigator')).toBeNull()
+    await clickElement(view.getByRole('button', { name: 'Show file navigator' }))
+    expect(view.getByTestId('workspace-file-navigator').className).toContain('absolute')
+    expect(view.getByTestId('workspace-file-navigator').className).toContain('w-[min(280px,100%)]')
+    expect(view.getByTestId('workspace-review-layout').className).toContain('grid-cols-1')
     const expandedPanel = view.getByTestId('workspace-panel')
     expect(expandedPanel.style.width).toBe('860px')
     expect(expandedPanel.style.maxWidth).toBe('min(62%, calc(100% - 328px))')
@@ -461,11 +475,178 @@ describe('WorkspacePanel', () => {
     const view = await renderPanel(sessionId)
     await clickElement(view.getByRole('button', { name: 'Show file navigator' }))
 
-    const row = view.getByText('src/app.ts').closest('button')
+    const row = view.container.querySelector('[data-workspace-file-path="src/app.ts"]')
     if (!row) throw new Error('Changed file row was not rendered')
     expect(row.getAttribute('aria-current')).toBe('true')
-    expect(row.className).toContain('bg-[var(--color-surface-selected)]')
+    expect(row.className).toContain('bg-[var(--color-info-container)]')
     expect(view.getByLabelText(statusLabel).textContent).toBe(status === 'modified' ? 'M' : 'A')
+  })
+
+  it('presents one review toolbar and reports filtered changed-file results', async () => {
+    const sessionId = 'session-review-toolbar'
+    await setWorkspaceState((state) => ({
+      ...state,
+      panelBySession: {
+        ...state.panelBySession,
+        [sessionId]: { isOpen: true, activeView: 'changed', hasUserSelectedView: true },
+      },
+      statusBySession: {
+        ...state.statusBySession,
+        [sessionId]: {
+          state: 'ok',
+          workDir: '/repo',
+          repoName: 'claude-code-haha',
+          branch: 'main',
+          isGitRepo: true,
+          changedFiles: [
+            { path: 'desktop/src/App.tsx', status: 'modified', additions: 7, deletions: 2 },
+            { path: 'desktop/src/theme.css', status: 'modified', additions: 3, deletions: 1 },
+            { path: 'docs/review.md', status: 'added', additions: 5, deletions: 0 },
+          ],
+        },
+      },
+    }))
+
+    const view = await renderPanel(sessionId)
+
+    const toolbar = view.getByTestId('workspace-review-toolbar')
+    expect(toolbar.getAttribute('aria-label')).toBe('Review workspace')
+    expect(toolbar.tagName).toBe('HEADER')
+    expect(toolbar.textContent).toContain('claude-code-haha')
+    expect(toolbar.textContent).toContain('main')
+    expect(toolbar.textContent).toContain('+15')
+    expect(toolbar.textContent).toContain('-3')
+
+    const filter = view.getByPlaceholderText('Filter files...')
+    expect(view.getByText('3 files')).toBeTruthy()
+    fireEvent.change(filter, { target: { value: 'theme' } })
+
+    expect(view.getByText('1 of 3 files')).toBeTruthy()
+    expect(view.container.querySelector('[data-workspace-file-path="desktop/src/theme.css"]')).toBeTruthy()
+    expect(view.container.querySelector('[data-workspace-file-path="desktop/src/App.tsx"]')).toBeNull()
+    expect(view.container.querySelector('[data-workspace-file-path="docs/review.md"]')).toBeNull()
+  })
+
+  it('keeps the full workbench tab in a stable diff and 280px navigator split', async () => {
+    const sessionId = 'session-full-review-workbench'
+    await setWorkspaceState((state) => ({
+      ...state,
+      panelBySession: {
+        ...state.panelBySession,
+        [sessionId]: { isOpen: true, activeView: 'changed', hasUserSelectedView: true },
+      },
+      statusBySession: {
+        ...state.statusBySession,
+        [sessionId]: {
+          state: 'ok',
+          workDir: '/repo',
+          repoName: 'repo',
+          branch: 'main',
+          isGitRepo: true,
+          changedFiles: [{ path: 'src/app.ts', status: 'modified', additions: 1, deletions: 1 }],
+        },
+      },
+      previewTabsBySession: {
+        ...state.previewTabsBySession,
+        [sessionId]: [{
+          id: 'diff:src/app.ts',
+          path: 'src/app.ts',
+          kind: 'diff',
+          title: 'app.ts',
+          diff: '@@ -1 +1 @@\n-old\n+new',
+          state: 'ok',
+        }],
+      },
+      activePreviewTabIdBySession: {
+        ...state.activePreviewTabIdBySession,
+        [sessionId]: 'diff:src/app.ts',
+      },
+    }))
+
+    const view = await renderPanel(sessionId, { embedded: true, forceVisible: true })
+
+    expect(view.getByTestId('workspace-review-layout').className).toContain('grid-cols-[minmax(0,1fr)_280px]')
+    expect(view.getByTestId('workspace-file-navigator').className).not.toContain('absolute')
+    expect(view.getByRole('button', { name: 'Hide file navigator' })).toBeTruthy()
+  })
+
+  it('groups changed files by directory without weakening file filtering', async () => {
+    const sessionId = 'session-grouped-changes'
+    await setWorkspaceState((state) => ({
+      ...state,
+      panelBySession: {
+        ...state.panelBySession,
+        [sessionId]: { isOpen: true, activeView: 'changed', hasUserSelectedView: true },
+      },
+      statusBySession: {
+        ...state.statusBySession,
+        [sessionId]: {
+          state: 'ok',
+          workDir: '/repo',
+          repoName: 'repo',
+          branch: 'main',
+          isGitRepo: true,
+          changedFiles: [
+            { path: 'desktop/src/App.tsx', status: 'modified', additions: 7, deletions: 2 },
+            { path: 'desktop/src/theme.css', status: 'modified', additions: 3, deletions: 1 },
+            { path: 'docs/review.md', status: 'added', additions: 5, deletions: 0 },
+          ],
+        },
+      },
+    }))
+
+    const view = await renderPanel(sessionId)
+
+    expect(view.getByText('desktop/src')).toBeTruthy()
+    expect(view.getByText('docs')).toBeTruthy()
+    expect(view.getByText('App.tsx')).toBeTruthy()
+    expect(view.getByText('theme.css')).toBeTruthy()
+
+    fireEvent.change(view.getByPlaceholderText('Filter files...'), { target: { value: 'theme' } })
+
+    expect(view.getByText('desktop/src')).toBeTruthy()
+    expect(view.queryByText('docs')).toBeNull()
+    expect(view.getByText('theme.css')).toBeTruthy()
+    expect(view.queryByText('App.tsx')).toBeNull()
+  })
+
+  it('gives renamed files enough height to show the old path without overlapping the next row', async () => {
+    const sessionId = 'session-renamed-file-height'
+    await setWorkspaceState((state) => ({
+      ...state,
+      panelBySession: {
+        ...state.panelBySession,
+        [sessionId]: { isOpen: true, activeView: 'changed', hasUserSelectedView: true },
+      },
+      statusBySession: {
+        ...state.statusBySession,
+        [sessionId]: {
+          state: 'ok',
+          workDir: '/repo',
+          repoName: 'repo',
+          branch: 'main',
+          isGitRepo: true,
+          changedFiles: [
+            {
+              path: 'desktop/src/components/workspace/NewWorkspacePanel.tsx',
+              oldPath: 'desktop/src/components/workspace/LegacyWorkspacePanelWithALongName.tsx',
+              status: 'renamed',
+              additions: 2,
+              deletions: 2,
+            },
+            { path: 'desktop/src/components/workspace/next.ts', status: 'modified', additions: 1, deletions: 0 },
+          ],
+        },
+      },
+    }))
+
+    const view = await renderPanel(sessionId)
+    const oldPath = view.getByText('desktop/src/components/workspace/LegacyWorkspacePanelWithALongName.tsx')
+    const renamedRow = oldPath.closest('button')
+
+    expect(renamedRow?.className).toContain('min-h-[52px]')
+    expect(renamedRow?.className).not.toContain('h-9')
+    expect(view.getByText('next.ts')).toBeTruthy()
   })
 
   it('refreshes status on open and switches back to changed files when new changes exist', async () => {
@@ -520,7 +701,7 @@ describe('WorkspacePanel', () => {
     await waitFor(() => {
       expect(view.getByRole('button', { name: 'Changed files' })).toBeTruthy()
     })
-    expect(view.getByText('src/Fresh.ts')).toBeTruthy()
+    expect(view.container.querySelector('[data-workspace-file-path="src/Fresh.ts"]')).toBeTruthy()
   })
 
   it('loads workspace status when opened while the chat is running', async () => {
@@ -558,7 +739,7 @@ describe('WorkspacePanel', () => {
       expect(getMocks().getWorkspaceStatusMock).toHaveBeenCalledWith('session-running-open')
     })
     await waitFor(() => {
-      expect(view.getByText('src/running.ts')).toBeTruthy()
+      expect(view.container.querySelector('[data-workspace-file-path="src/running.ts"]')).toBeTruthy()
     })
     expect(view.queryByText('Loading...')).toBeNull()
   })
@@ -592,11 +773,11 @@ describe('WorkspacePanel', () => {
     const view = await renderPanel('session-non-git')
 
     await waitFor(() => {
-      expect(view.getByText('src/app.ts')).toBeTruthy()
+      expect(view.container.querySelector('[data-workspace-file-path="src/app.ts"]')).toBeTruthy()
     })
     expect(view.queryByText('No matching files')).toBeNull()
 
-    await clickElement(view.getByText('src/app.ts'))
+    await clickElement(view.container.querySelector('[data-workspace-file-path="src/app.ts"]')!)
 
     await waitFor(() => {
       expect(getMocks().getWorkspaceDiffMock).toHaveBeenCalledWith('session-non-git', 'src/app.ts')
@@ -663,7 +844,14 @@ describe('WorkspacePanel', () => {
     expect(view.getByRole('button', { name: 'All files' })).toBeTruthy()
     expect(await view.findByText('src')).toBeTruthy()
     expect(await view.findByText('README.md')).toBeTruthy()
+    expect(view.getByRole('status').textContent).toBe('2 items')
     expect(view.queryByText('No changes')).toBeNull()
+
+    fireEvent.change(view.getByPlaceholderText('Filter files...'), { target: { value: 'readme' } })
+
+    expect(view.getByRole('status').textContent).toBe('1 of 2 items')
+    expect(view.queryByText('src')).toBeNull()
+    expect(view.getByText('README.md')).toBeTruthy()
   })
 
   it('lazy loads the root tree, expands directories, and opens file previews from the all-files view', async () => {
@@ -911,7 +1099,7 @@ describe('WorkspacePanel', () => {
 
     expect(view.getByRole('button', { name: 'Changed files' })).toBeTruthy()
     expect(view.getByPlaceholderText('Filter files...')).toBeTruthy()
-    expect(view.getByText('src/app.ts')).toBeTruthy()
+    expect(view.container.querySelector('[data-workspace-file-path="src/app.ts"]')).toBeTruthy()
     expect(view.getByRole('button', { name: 'Hide file navigator' })).toBeTruthy()
   })
 
@@ -972,10 +1160,10 @@ describe('WorkspacePanel', () => {
     await waitFor(() => {
       expect(getMocks().getWorkspaceTreeMock).toHaveBeenCalledWith('session-preview-hidden-tree', '')
     })
-    expect(view.getAllByText('src').length).toBeGreaterThanOrEqual(2)
+    expect(view.getByText('src')).toBeTruthy()
   })
 
-  it('uses theme tokens for the panel, preview tabs, and code surface in dark mode', async () => {
+  it('uses theme tokens for the panel, preview header, and code surface in dark mode', async () => {
     await setSettingsState({ ...settingsInitialState, locale: 'en', theme: 'dark' })
     await setWorkspaceState((state) => ({
       ...state,
@@ -1019,13 +1207,17 @@ describe('WorkspacePanel', () => {
 
     const view = await renderPanel('session-dark-theme')
     const panel = view.getByTestId('workspace-panel')
-    const tabList = view.getByRole('tablist', { name: 'Preview tabs' })
+    const previewHeader = view.getByTestId('workspace-preview-header')
     const codeSurface = view.getByTestId('workspace-code')
 
     expect(panel.className).toContain('bg-[var(--color-surface)]')
     expect(panel.className).not.toContain('bg-white')
-    expect(tabList.className).toContain('bg-[var(--color-surface-container-lowest)]')
-    expect(tabList.className).not.toContain('bg-white')
+    expect(view.queryByRole('tablist', { name: 'Preview tabs' })).toBeNull()
+    expect(previewHeader.className).toContain('bg-[var(--color-surface)]')
+    expect(previewHeader.className).not.toContain('bg-white')
+    const addToChatLabel = Array.from(previewHeader.querySelectorAll('span'))
+      .find((element) => element.textContent === 'Add to chat')
+    expect(addToChatLabel?.className).toContain('hidden min-[960px]:inline')
     expect(classNameContains(codeSurface, 'bg-[var(--color-code-bg)]')).toBe(true)
     expect(classNameContains(codeSurface, 'bg-white')).toBe(false)
   })
@@ -1133,7 +1325,7 @@ describe('WorkspacePanel', () => {
 
     expect(firstRow?.className).toContain('w-max')
     expect(firstRow?.className).toContain('min-w-full')
-    expect(firstRow?.className).toContain('grid-cols-[42px_42px_28px_18px_minmax(max-content,1fr)]')
+    expect(firstRow?.className).toContain('grid-cols-[46px_46px_30px_20px_minmax(max-content,1fr)]')
     expect(diffSurface.textContent).toContain(longDiffLine)
   })
 
@@ -2124,10 +2316,10 @@ describe('WorkspacePanel', () => {
     expect(viewMenuButton.className).toContain('text-[14px]')
     expect(viewMenuButton.className).not.toContain('text-[18px]')
     expect(viewMenuButton.querySelector('.material-symbols-outlined')?.className).toContain('text-[15px]')
-    expect(refreshButton.className).toContain('h-7 w-7')
-    expect(closeButton.className).toContain('h-7 w-7')
-    expect(refreshButton.querySelector('.material-symbols-outlined')?.className).toContain('text-[16px]')
-    expect(closeButton.querySelector('.material-symbols-outlined')?.className).toContain('text-[16px]')
+    expect(refreshButton.className).toContain('h-8 w-8')
+    expect(closeButton.className).toContain('h-8 w-8')
+    expect(refreshButton.querySelector('.lucide-refresh-cw')).toBeTruthy()
+    expect(closeButton.querySelector('.lucide-x')).toBeTruthy()
   })
 
   it('shows explicit empty and error states in the changed view', async () => {
@@ -2231,7 +2423,7 @@ describe('WorkspacePanel', () => {
     const view = await renderPanel('session-preview-refresh')
     expect(view.getByText('cached')).toBeTruthy()
 
-    await clickElement(view.getByRole('tab', { name: /a\.ts/ }))
+    await clickElement(view.getByRole('button', { name: 'Refresh workspace' }))
 
     expect(view.getByText('cached')).toBeTruthy()
     expect(view.getByTestId('workspace-preview-content').getAttribute('aria-busy')).toBe('true')
@@ -2310,7 +2502,7 @@ describe('WorkspacePanel', () => {
     }))
 
     const view = await renderPanel('session-preview-refresh-error')
-    await clickElement(view.getByRole('tab', { name: /a\.ts/ }))
+    await clickElement(view.getByRole('button', { name: '刷新工作区' }))
     refresh.resolve({ state: 'missing', path: 'src/a.ts' })
     await flushReactWork()
 

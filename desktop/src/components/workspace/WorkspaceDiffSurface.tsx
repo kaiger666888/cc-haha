@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from 'react'
-import { CornerDownLeft, MessageSquare, Plus } from 'lucide-react'
+import { CornerDownLeft, FileCode2, MessageSquare, Plus } from 'lucide-react'
 import { Highlight, type PrismTheme } from 'prism-react-renderer'
 import { useTranslation } from '../../i18n'
 import {
@@ -266,7 +266,8 @@ export function WorkspaceDiffSurface({
   }
 
   const handleRowClick = (event: MouseEvent<HTMLButtonElement>, row: WorkspaceDiffRow) => {
-    activateRow(row, event.shiftKey, true)
+    if (event.shiftKey) event.currentTarget.focus()
+    activateRow(row, event.shiftKey, !event.shiftKey)
   }
 
   const moveRovingFocus = (row: WorkspaceDiffRow, direction: -1 | 1, extend: boolean) => {
@@ -401,35 +402,45 @@ export function WorkspaceDiffSurface({
   const renderEditor = () => review.selection && (
     <div
       data-diff-editor=""
-      className="min-w-[420px] border-y border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-3 py-2"
+      className="my-3 ml-[116px] mr-4 min-w-[420px] rounded-[10px] bg-[var(--color-surface-container-low)] p-3 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-text-primary)_9%,transparent)]"
     >
       {status && (
         <div role="status" aria-live="polite" className="mb-1.5 text-[11px] text-[var(--color-warning)]">
           {t(`workspace.diffReview.${status}`)}
         </div>
       )}
-      <div className="flex items-start gap-2 pl-[84px]">
-        <MessageSquare aria-hidden="true" className="mt-1.5 shrink-0 text-[var(--color-text-tertiary)]" size={14} />
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 text-[11px] font-medium text-[var(--color-text-secondary)]">
-            {sideLabel(review.selection.side)} L{review.selection.lineStart}{review.selection.lineEnd === review.selection.lineStart ? '' : `-L${review.selection.lineEnd}`}
-          </div>
-          <textarea
-            ref={editorRef}
-            aria-label={t('workspace.diffReview.editorLabel')}
-            value={review.draft}
-            onChange={(event) => setReview((current) => ({ ...current, draft: event.target.value }))}
-            onKeyDown={handleEditorKeyDown}
-            rows={2}
-            className="block min-h-14 w-full resize-y rounded-[6px] border border-[var(--color-border)] bg-[var(--color-surface-container)] px-2 py-1.5 font-[var(--font-sans)] text-[12px] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-border-focus)]"
-          />
+      <div className="mb-2 flex items-center gap-2">
+        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] bg-[var(--color-info-container)] text-[var(--color-info)]">
+          <MessageSquare aria-hidden="true" size={14} />
+        </span>
+        <div className="text-[12px] font-semibold text-[var(--color-text-primary)]">
+          {sideLabel(review.selection.side)} L{review.selection.lineStart}{review.selection.lineEnd === review.selection.lineStart ? '' : `-L${review.selection.lineEnd}`}
         </div>
+      </div>
+      <textarea
+        ref={editorRef}
+        aria-label={t('workspace.diffReview.editorLabel')}
+        value={review.draft}
+        placeholder={t('workspace.commentPlaceholder')}
+        onChange={(event) => setReview((current) => ({ ...current, draft: event.target.value }))}
+        onKeyDown={handleEditorKeyDown}
+        rows={3}
+        className="block min-h-[88px] w-full resize-y rounded-[8px] bg-[var(--color-surface)] px-3 py-2.5 font-[var(--font-body)] text-[13px] leading-5 text-[var(--color-text-primary)] outline-none shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-text-primary)_10%,transparent)] transition-[box-shadow] duration-200 ease-out placeholder:text-[var(--color-text-tertiary)] focus:shadow-[inset_0_0_0_1px_var(--color-info),0_0_0_3px_color-mix(in_srgb,var(--color-info)_12%,transparent)]"
+      />
+      <div className="mt-2.5 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={closeEditor}
+          className="inline-flex h-8 items-center justify-center rounded-[7px] px-3 text-[12px] font-medium text-[var(--color-text-secondary)] transition-[color,background-color,transform] duration-200 ease-out hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] active:scale-[0.98]"
+        >
+          {t('common.cancel')}
+        </button>
         <button
           type="button"
           aria-label={t('workspace.diffReview.submitAria')}
           disabled={!review.draft.trim()}
           onClick={submitComment}
-          className="mt-6 inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-[5px] px-1.5 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-[7px] bg-[var(--color-info)] px-3 text-[12px] font-medium text-[var(--color-surface)] transition-[opacity,transform] duration-200 ease-out hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-35"
         >
           <CornerDownLeft aria-hidden="true" size={14} />
           <span>{t('workspace.diffReview.submit')}</span>
@@ -440,11 +451,13 @@ export function WorkspaceDiffSurface({
 
   return (
     <div className={className}>
-      <div className="relative min-w-max py-2">
+      <div className="relative min-w-max pb-3">
         <div
           data-workspace-code=""
           data-testid="workspace-code"
-          className="m-0 font-[var(--font-mono)] text-[12px] leading-[1.55] text-[var(--color-code-fg)]"
+          role="grid"
+          aria-label={`${path} diff`}
+          className="m-0 font-[var(--font-mono)] text-[13px] leading-[1.65] text-[var(--color-code-fg)]"
         >
           {files.map((file) => {
             const headerVisible = visibleItemIds.has(`${file.id}-header`)
@@ -453,34 +466,72 @@ export function WorkspaceDiffSurface({
             const oldPath = file.oldPath ? `a/${file.oldPath}` : '/dev/null'
             const newPath = file.newPath ? `b/${file.newPath}` : '/dev/null'
             const language = getLanguageFromPath(file.newPath ?? file.oldPath ?? path)
+            const fileAdditions = file.rows.filter((row) => row.kind === 'addition').length
+            const fileDeletions = file.rows.filter((row) => row.kind === 'deletion').length
+            const displayPath = file.newPath ?? file.oldPath ?? path
+            const displayName = displayPath.split('/').pop() ?? displayPath
+            const displayDirectory = displayPath.slice(0, Math.max(0, displayPath.length - displayName.length))
             return (
               <div key={file.id}>
                 {headerVisible && (
                   <div
                     data-testid="workspace-diff-file-header"
-                    className="min-h-7 border-y border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-1 font-semibold text-[var(--color-text-secondary)]"
+                    className="sticky top-0 z-10 flex h-10 items-center gap-2 border-b border-[var(--color-text-primary)]/10 bg-[var(--color-surface)]/96 px-4 text-[12px] backdrop-blur"
                   >
-                    diff --git {oldPath} {newPath}
+                    <FileCode2 aria-hidden="true" size={15} className="shrink-0 text-[var(--color-text-tertiary)]" />
+                    <span className="min-w-0 truncate">
+                      {displayDirectory && (
+                        <span className="text-[var(--color-text-tertiary)]">{displayDirectory}</span>
+                      )}
+                      <span className="font-semibold text-[var(--color-text-primary)]">{displayName}</span>
+                    </span>
+                    <span className="ml-auto shrink-0 font-[var(--font-mono)] text-[11px] tabular-nums">
+                      <span className="text-[var(--color-success)]">+{fileAdditions}</span>
+                      <span className="ml-1.5 text-[var(--color-error)]">-{fileDeletions}</span>
+                    </span>
+                    <span className="sr-only">diff --git {oldPath} {newPath}</span>
                   </div>
                 )}
                 {fileRows.map((row) => {
                   const line = row.side === 'old' ? row.oldLine : row.newLine
                   const selected = selectedIds.has(row.id)
+                  const selectionFocus = selected && row.id === review.focusId
+                  const rangeEdge = selected
+                    ? review.selection?.startId === review.selection?.endId
+                      ? 'single'
+                      : row.id === review.selection?.startId
+                        ? 'start'
+                        : row.id === review.selection?.endId
+                          ? 'end'
+                          : undefined
+                    : undefined
                   return (
                     <Fragment key={row.id}>
                       <div
+                        role="row"
+                        aria-selected={selected}
                         data-diff-row-id={row.id}
-                        className={`group grid min-h-7 min-w-full w-max grid-cols-[42px_42px_28px_18px_minmax(max-content,1fr)] items-stretch px-3 ${rowTone(row)} ${
-                          selected ? 'outline outline-1 -outline-offset-1 outline-[var(--color-border-focus)]' : ''
+                        data-range-edge={rangeEdge}
+                        className={`group relative grid min-h-[30px] min-w-full w-max grid-cols-[46px_46px_30px_20px_minmax(max-content,1fr)] items-stretch px-3 ${
+                          selected ? 'bg-[var(--color-info-container)]' : rowTone(row)
                         }`}
                       >
+                        {selected && (
+                          <span
+                            data-diff-selection-rail=""
+                            aria-hidden="true"
+                            className={`absolute inset-y-0 left-0 w-[3px] bg-[var(--color-info)] ${
+                              rangeEdge === 'single' ? 'rounded-sm' : rangeEdge === 'start' ? 'rounded-t-sm' : rangeEdge === 'end' ? 'rounded-b-sm' : ''
+                            }`}
+                          />
+                        )}
                         <span className="select-none self-center text-right text-[11px] text-[var(--color-text-tertiary)]">
                           {row.oldLine ?? ''}
                         </span>
                         <span className="select-none self-center text-right text-[11px] text-[var(--color-text-tertiary)]">
                           {row.newLine ?? ''}
                         </span>
-                        <span className="flex h-7 w-7 items-center justify-center">
+                        <span className="flex h-[30px] w-[30px] items-center justify-center">
                           {row.selectable && row.side && line !== null && (
                             <button
                               ref={(element) => {
@@ -494,12 +545,13 @@ export function WorkspaceDiffSurface({
                                 line,
                               })}
                               aria-pressed={selected}
+                              data-selection-focus={selectionFocus ? 'true' : undefined}
                               tabIndex={row.id === rovingId ? 0 : -1}
                               onClick={(event) => handleRowClick(event, row)}
                               onFocus={() => setRovingId(row.id)}
                               onKeyDown={(event) => handleRowKeyDown(event, row)}
-                              className={`inline-flex h-7 w-7 items-center justify-center rounded-[5px] text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-border-focus)] ${
-                                selected ? 'text-[var(--color-accent)]' : 'opacity-0 group-hover:opacity-100 focus:opacity-100'
+                              className={`inline-flex h-7 w-7 items-center justify-center rounded-[6px] transition-[color,background-color,opacity,transform] duration-200 ease-out hover:bg-[var(--color-info)] hover:text-[var(--color-surface)] active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-info)] ${
+                                selectionFocus ? 'bg-[var(--color-info)] text-[var(--color-surface)] opacity-100' : 'text-[var(--color-text-tertiary)] opacity-0 group-hover:opacity-100 focus:opacity-100'
                               }`}
                             >
                               {selected ? <MessageSquare aria-hidden="true" size={14} /> : <Plus aria-hidden="true" size={14} />}

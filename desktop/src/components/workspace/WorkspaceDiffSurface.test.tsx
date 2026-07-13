@@ -88,6 +88,53 @@ describe('WorkspaceDiffSurface', () => {
     expect(getCodeRow('const c = 4')).toHaveAttribute('data-selected', 'true')
   })
 
+  it('exposes the selected Shift range on the diff rows and review rail', () => {
+    render(<WorkspaceDiffSurface value={diff} path="src/a.ts" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Comment on src/a.ts new line 10' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Comment on src/a.ts new line 12' }), { shiftKey: true })
+
+    const firstRow = getCodeRow('const a = 1').closest('[data-diff-row-id]')
+    const middleRow = getCodeRow('const b = 3').closest('[data-diff-row-id]')
+    const lastRow = getCodeRow('const c = 4').closest('[data-diff-row-id]')
+    expect(firstRow).toHaveAttribute('aria-selected', 'true')
+    expect(firstRow).toHaveAttribute('data-range-edge', 'start')
+    expect(middleRow).toHaveAttribute('aria-selected', 'true')
+    expect(middleRow).not.toHaveAttribute('data-range-edge')
+    expect(lastRow).toHaveAttribute('aria-selected', 'true')
+    expect(lastRow).toHaveAttribute('data-range-edge', 'end')
+    expect(document.querySelectorAll('[data-diff-selection-rail]')).toHaveLength(3)
+    expect(firstRow?.className).toContain('bg-[var(--color-info-container)]')
+    expect(firstRow?.className).not.toContain('bg-[var(--color-diff-added-bg)]')
+    expect(screen.getByTestId('workspace-code').className).toContain('text-[13px]')
+    const editor = screen.getByRole('textbox', { name: 'Review comment' })
+    expect(editor.closest('[data-diff-editor]')?.className).toContain('rounded-[10px]')
+    expect(editor.className).toContain('var(--color-info)')
+    expect(screen.getByRole('button', { name: 'Comment on src/a.ts new line 10' })).not.toHaveAttribute('data-selection-focus')
+    const focusedGutter = screen.getByRole('button', { name: 'Comment on src/a.ts new line 12' })
+    expect(focusedGutter).toHaveAttribute('data-selection-focus', 'true')
+    expect(focusedGutter.className).toContain('text-[var(--color-surface)]')
+    expect(focusedGutter.className).not.toContain('text-[var(--color-text-tertiary)]')
+    expect(focusedGutter.className).not.toContain('text-white')
+    const submit = screen.getByRole('button', { name: 'Submit review comment' })
+    expect(submit.className).toContain('text-[var(--color-surface)]')
+    expect(submit.className).not.toContain('text-white')
+  })
+
+  it('cancels an inline review from the visible editor action', () => {
+    render(<WorkspaceDiffSurface value={diff} path="src/a.ts" />)
+    const anchor = screen.getByRole('button', { name: 'Comment on src/a.ts new line 11' })
+
+    fireEvent.click(anchor)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Review comment' }), {
+      target: { value: 'This draft should close' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByRole('textbox', { name: 'Review comment' })).not.toBeInTheDocument()
+    expect(anchor).toHaveFocus()
+  })
+
   it('does not submit an empty review comment', () => {
     const onAddComment = vi.fn()
     render(<WorkspaceDiffSurface value={diff} path="src/a.ts" onAddComment={onAddComment} />)
