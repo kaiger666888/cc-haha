@@ -1565,6 +1565,46 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('restores persisted workspace diff comments without exposing the model prompt', () => {
+    const modelPrompt = [
+      '@"/repo/homepage/src/App.vue" Referenced workspace context:',
+      '@"homepage/src/App.vue:new:L94-L105":',
+      'Comment: 这块儿我们不能再修改一下',
+      '```vue',
+      '<section id="hero" class="pt-32 pb-20 px-6">',
+      '  <h1>{{ name }}</h1>',
+      '</section>',
+      '```',
+    ].join('\n')
+    const mapped = mapHistoryMessagesToUiMessages([
+      {
+        id: 'workspace-comment-user-1',
+        type: 'user',
+        timestamp: '2026-07-14T00:00:00.000Z',
+        content: [{ type: 'text', text: modelPrompt }],
+      } as MessageEntry,
+    ])
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'workspace-comment-user-1',
+        type: 'user_text',
+        content: '',
+        modelContent: modelPrompt,
+        attachments: [{
+          type: 'file',
+          name: 'App.vue',
+          path: 'homepage/src/App.vue',
+          lineStart: 94,
+          lineEnd: 105,
+          diffSide: 'new',
+          note: '这块儿我们不能再修改一下',
+          quote: '<section id="hero" class="pt-32 pb-20 px-6">\n  <h1>{{ name }}</h1>\n</section>',
+        }],
+      },
+    ])
+  })
+
   it('keeps workspace reference chips visible while sending CLI attachment paths', () => {
     useChatStore.setState({
       sessions: {
@@ -1610,6 +1650,8 @@ describe('chatStore history mapping', () => {
           path: 'src/App.tsx',
           lineStart: 4,
           lineEnd: 4,
+          diffSide: 'new',
+          hunkId: 'hunk-1',
           note: 'tighten this',
           quote: 'const value = 1',
         }],
@@ -1627,6 +1669,8 @@ describe('chatStore history mapping', () => {
           path: 'src/App.tsx',
           lineStart: 4,
           lineEnd: 4,
+          diffSide: 'new',
+          hunkId: 'hunk-1',
           note: 'tighten this',
           quote: 'const value = 1',
         }],
@@ -5093,6 +5137,44 @@ describe('chatStore history mapping', () => {
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
       { type: 'user_text', content: prompt },
       { type: 'thinking', content: 'I need to plan the implementation.' },
+    ])
+  })
+
+  it('restores workspace diff comment styling from a replayed model prompt', () => {
+    const modelPrompt = [
+      '@"/repo/src/App.vue" Referenced workspace context:',
+      '@"src/App.vue:new:L94-L105":',
+      'Comment: 调整这里',
+      '```vue',
+      '<section id="hero">',
+      '```',
+    ].join('\n')
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({ chatState: 'thinking' }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'user_message_replay',
+      content: modelPrompt,
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      {
+        type: 'user_text',
+        content: '',
+        modelContent: modelPrompt,
+        attachments: [{
+          type: 'file',
+          path: 'src/App.vue',
+          diffSide: 'new',
+          lineStart: 94,
+          lineEnd: 105,
+          note: '调整这里',
+          quote: '<section id="hero">',
+        }],
+      },
     ])
   })
 

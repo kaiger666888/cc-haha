@@ -1155,6 +1155,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             mimeType: a.mimeType,
             lineStart: a.lineStart,
             lineEnd: a.lineEnd,
+            diffSide: a.diffSide,
+            hunkId: a.hunkId,
             note: a.note,
             quote: a.quote,
           }))
@@ -3552,6 +3554,133 @@ function extractLeadingFileReferences(text: string): {
   }
 }
 
+type WorkspaceReferenceHistoryDisplay = {
+  content: string
+  attachments: UIAttachment[]
+}
+
+function parseWorkspaceReferenceLocation(location: string): {
+  path: string
+  lineStart?: number
+  lineEnd?: number
+  diffSide?: 'old' | 'new'
+} {
+  const match = location.match(/^(.*?)(?::(old|new))?:L(\d+)(?:-L(\d+))?$/)
+  if (!match?.[1] || !match[3]) return { path: location }
+
+  const lineStart = Number(match[3])
+  const lineEnd = Number(match[4] ?? match[3])
+  return {
+    path: match[1],
+    lineStart,
+    lineEnd,
+    ...(match[2] === 'old' || match[2] === 'new' ? { diffSide: match[2] } : {}),
+  }
+}
+
+function parseWorkspaceReferenceHistoryPrompt(text: string): WorkspaceReferenceHistoryDisplay | null {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n')
+  if (lines[0]?.trim() !== 'Referenced workspace context:') return null
+
+  const attachments: UIAttachment[] = []
+  let index = 1
+  const isLocationHeader = (line: string) => /^@".+":$/.test(line.trim())
+
+  while (index < lines.length) {
+    const header = lines[index]?.trim() ?? ''
+    const locationMatch = header.match(/^@"(.+)":$/)
+    if (!locationMatch?.[1]) break
+
+    const location = parseWorkspaceReferenceLocation(locationMatch[1])
+    index += 1
+
+    let note: string | undefined
+    if (lines[index]?.trimStart().startsWith('Comment:')) {
+      const noteLines = [lines[index]!.trimStart().slice('Comment:'.length).trimStart()]
+      index += 1
+      while (
+        index < lines.length &&
+        lines[index]!.trim() !== '' &&
+        !/^`{3,}/.test(lines[index]!.trim()) &&
+        !isLocationHeader(lines[index]!)
+      ) {
+        noteLines.push(lines[index]!)
+        index += 1
+      }
+      note = noteLines.join('\n').trim() || undefined
+    }
+
+    let quote: string | undefined
+    const fenceMatch = lines[index]?.trim().match(/^(`{3,})[^`]*$/)
+    if (fenceMatch?.[1]) {
+      const fence = fenceMatch[1]
+      index += 1
+      const quoteLines: string[] = []
+      while (index < lines.length && lines[index]?.trim() !== fence) {
+        quoteLines.push(lines[index]!)
+        index += 1
+      }
+      if (index >= lines.length) return null
+      index += 1
+      quote = quoteLines.join('\n').trim() || undefined
+    }
+
+    attachments.push({
+      type: 'file',
+      name: getReferenceName(location.path),
+      path: location.path,
+      ...(location.lineStart ? { lineStart: location.lineStart } : {}),
+      ...(location.lineEnd ? { lineEnd: location.lineEnd } : {}),
+      ...(location.diffSide ? { diffSide: location.diffSide } : {}),
+      ...(note ? { note } : {}),
+      ...(quote ? { quote } : {}),
+    })
+  }
+
+  if (attachments.length === 0) return null
+  while (lines[index]?.trim() === '') index += 1
+  return {
+    content: lines.slice(index).join('\n').trim(),
+    attachments,
+  }
+}
+
+function pathsReferToSameFile(left: string | undefined, right: string | undefined): boolean {
+  if (!left || !right) return false
+  const normalizedLeft = left.replace(/\\/g, '/').replace(/^\.\//, '')
+  const normalizedRight = right.replace(/\\/g, '/').replace(/^\.\//, '')
+  return (
+    normalizedLeft === normalizedRight ||
+    normalizedLeft.endsWith(`/${normalizedRight}`) ||
+    normalizedRight.endsWith(`/${normalizedLeft}`)
+  )
+}
+
+function extractRestoredUserDisplay(text: string): {
+  content: string
+  attachments?: UIAttachment[]
+  modelContent?: string
+} {
+  const leading = extractLeadingFileReferences(text)
+  const workspace = parseWorkspaceReferenceHistoryPrompt(leading.content)
+  if (!workspace) return leading
+
+  const unmatchedLeading = [...(leading.attachments ?? [])]
+  for (const attachment of workspace.attachments) {
+    const matchingIndex = unmatchedLeading.findIndex((candidate) =>
+      pathsReferToSameFile(candidate.path, attachment.path),
+    )
+    if (matchingIndex >= 0) unmatchedLeading.splice(matchingIndex, 1)
+  }
+
+  const attachments = [...unmatchedLeading, ...workspace.attachments]
+  return {
+    content: workspace.content,
+    attachments: attachments.length > 0 ? attachments : undefined,
+    modelContent: text,
+  }
+}
+
 export function appendReplayedUserMessage(
   messages: UIMessage[],
   content: string,
@@ -3562,9 +3691,9 @@ export function appendReplayedUserMessage(
   // mapping) so the dedupe below can match the already-rendered message instead
   // of appending the raw prompt — paths and all — as a duplicate bubble.
   const sanitized = stripGeneratedImageMetadataLines(content) || content.trim()
-  const parsed = extractLeadingFileReferences(sanitized)
-  const displayContent = parsed.content.trim() || sanitized
-  if (!displayContent) return messages
+  const parsed = extractRestoredUserDisplay(sanitized)
+  const displayContent = parsed.content.trim()
+  if (!displayContent && !parsed.attachments?.length) return messages
 
   const modelContent = parsed.modelContent ?? sanitized
   const currentTurnUserIndex = findCurrentTurnUserMessageIndex(messages, modelContent)
@@ -3629,6 +3758,8 @@ function mapQueuedDisplayAttachments(attachments?: AttachmentRef[]): UIAttachmen
     isDirectory: attachment.isDirectory,
     lineStart: attachment.lineStart,
     lineEnd: attachment.lineEnd,
+    diffSide: attachment.diffSide,
+    hunkId: attachment.hunkId,
     note: attachment.note,
     quote: attachment.quote,
   }))
@@ -3865,7 +3996,7 @@ export function mapHistoryMessagesToUiMessages(
         })
         continue
       }
-      const parsed = extractLeadingFileReferences(msg.content)
+      const parsed = extractRestoredUserDisplay(msg.content)
       uiMessages.push({
         id: msg.id || nextId(),
         type: 'user_text',
@@ -3943,7 +4074,7 @@ export function mapHistoryMessagesToUiMessages(
         if (visualSelectionDisplay) {
           applyVisualSelectionHistoryDisplay(attachments, visualSelectionDisplay)
         }
-        const parsed = extractLeadingFileReferences(visibleText)
+        const parsed = extractRestoredUserDisplay(visibleText)
         const userContent = visualSelectionDisplay ? '' : parsed.content
         const modelContent = visualSelectionDisplay || modelText !== visibleText ? modelText : parsed.modelContent
         const allAttachments = [...(parsed.attachments ?? []), ...attachments]

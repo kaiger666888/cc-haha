@@ -693,6 +693,8 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
         isDirectory: reference.isDirectory,
         lineStart: reference.lineStart,
         lineEnd: reference.lineEnd,
+        diffSide: reference.diffSide,
+        hunkId: reference.hunkId,
         note: reference.note,
         quote: reference.quote,
       })),
