@@ -455,6 +455,24 @@ describe('PermissionModeSelector', () => {
       .toHaveTextContent('autoplay')
   })
 
+  it('renders the visually larger Auto glyph at a reduced size', () => {
+    const { rerender } = render(
+      <PermissionModeSelector value="default" onChange={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ask permissions' }))
+    const autoIcon = screen
+      .getByRole('menuitem', { name: /Auto mode/ })
+      .querySelector('.material-symbols-outlined')
+    expect(autoIcon).toHaveClass('text-[18px]')
+
+    rerender(<PermissionModeSelector value="auto" onChange={vi.fn()} />)
+    const triggerIcon = screen
+      .getByRole('button', { name: 'Auto mode' })
+      .querySelector('.material-symbols-outlined')
+    expect(triggerIcon).toHaveClass('text-[12px]')
+  })
+
   it('does not change mode when first-use Auto confirmation is cancelled', () => {
     const onChange = vi.fn()
     useSettingsStore.setState({ autoModeOptInAccepted: false } as never)

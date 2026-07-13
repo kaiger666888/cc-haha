@@ -214,7 +214,7 @@ export function PermissionModeSelector({ workDir: workDirProp, compact = false, 
             ${item.value === currentMode ? 'bg-[var(--color-surface-selected)]' : ''}
           `}
         >
-          <span className={`material-symbols-outlined mt-0.5 text-[20px] ${item.color || 'text-[var(--color-text-secondary)]'}`}>
+          <span className={`material-symbols-outlined mt-0.5 ${item.value === 'auto' ? 'text-[18px]' : 'text-[20px]'} ${item.color || 'text-[var(--color-text-secondary)]'}`}>
             {item.icon}
           </span>
           <div className="min-w-0 flex-1">
@@ -264,7 +264,9 @@ export function PermissionModeSelector({ workDir: workDirProp, compact = false, 
           isTurnActive ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[var(--color-surface-hover)]'
         } ${compactButtonClass}`}
       >
-        <span className="material-symbols-outlined text-[14px]">{MODE_ICONS[currentMode]}</span>
+        <span className={`material-symbols-outlined ${currentMode === 'auto' ? 'text-[12px]' : 'text-[14px]'}`}>
+          {MODE_ICONS[currentMode]}
+        </span>
         {!compact && (
           <>
             <span>{MODE_LABELS[currentMode]}</span>
