@@ -20,7 +20,7 @@ type PopoverPosition = {
   width: number
 }
 
-const POPOVER_WIDTH = 280
+const POPOVER_WIDTH = 240
 const VIEWPORT_MARGIN = 16
 const POPOVER_GAP = 10
 
@@ -107,22 +107,22 @@ export function ReasoningEffortPopover({
     <div
       ref={popoverRef}
       data-testid="reasoning-effort-popover"
-      className="fixed z-[90] rounded-[18px] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-4 pb-4 pt-3.5 shadow-[0_14px_36px_rgba(15,23,42,0.14)]"
+      className="fixed z-[90] rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-3.5 pb-3.5 pt-3 shadow-[0_12px_30px_rgba(15,23,42,0.13)]"
       style={{ bottom: position.bottom, left: position.left, width: position.width }}
     >
       <div
         data-testid="reasoning-effort-header"
-        className="mb-3 flex items-baseline justify-between gap-3"
+        className="mb-2.5 flex items-baseline justify-between gap-3"
       >
         <div
           data-testid="reasoning-effort-label"
-          className="text-[15px] font-semibold text-[var(--color-text-secondary)]"
+          className="text-sm font-semibold text-[var(--color-text-secondary)]"
         >
           {labels[value]}
         </div>
         <div
           data-testid="reasoning-effort-context-label"
-          className="text-[11px] font-medium tracking-wide text-[var(--color-text-tertiary)]"
+          className="text-[10px] font-medium tracking-wide text-[var(--color-text-tertiary)]"
         >
           {ariaLabel}
         </div>
@@ -137,7 +137,7 @@ export function ReasoningEffortPopover({
         aria-valuemax={maxIndex}
         aria-valuenow={selectedIndex}
         aria-valuetext={labels[value]}
-        className="group relative flex h-11 touch-none cursor-pointer items-center outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] focus-visible:ring-offset-4 focus-visible:ring-offset-[var(--color-surface-container-lowest)]"
+        className="group relative flex h-9 touch-none cursor-pointer items-center outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] focus-visible:ring-offset-3 focus-visible:ring-offset-[var(--color-surface-container-lowest)]"
         onClick={(event) => selectFromClientX(event.clientX)}
         onPointerDown={(event) => {
           draggingRef.current = true
@@ -182,7 +182,7 @@ export function ReasoningEffortPopover({
       >
         <div
           data-testid="reasoning-effort-track"
-          className="absolute inset-x-0 h-[30px] overflow-hidden rounded-full bg-[var(--color-surface-container-high)] shadow-[inset_0_0_0_1px_var(--color-border)]"
+          className="absolute inset-x-0 h-6 overflow-hidden rounded-full bg-[var(--color-surface-container-high)] shadow-[inset_0_0_0_1px_var(--color-border)]"
         >
           <div
             data-testid="reasoning-effort-fill"
@@ -191,12 +191,12 @@ export function ReasoningEffortPopover({
           />
         </div>
 
-        <div className="absolute inset-x-0 flex items-center justify-between px-[22px]">
+        <div className="absolute inset-x-0 flex items-center justify-between px-[18px]">
           {options.map((option, index) => (
             <span
               key={option}
               data-testid="reasoning-effort-stop"
-              className={`h-2 w-2 rounded-full ${index <= selectedIndex ? 'bg-white/45' : 'bg-[var(--color-outline)]/55'}`}
+              className={`h-1.5 w-1.5 rounded-full ${index <= selectedIndex ? 'bg-white/45' : 'bg-[var(--color-outline)]/55'}`}
             />
           ))}
         </div>
@@ -204,7 +204,7 @@ export function ReasoningEffortPopover({
         <div
           aria-hidden="true"
           data-testid="reasoning-effort-thumb"
-          className="absolute top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[var(--color-border)] bg-white shadow-[0_3px_9px_rgba(15,23,42,0.14)] transition-[left] duration-200 motion-reduce:transition-none"
+          className="absolute top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[var(--color-border)] bg-white shadow-[0_2px_7px_rgba(15,23,42,0.13)] transition-[left] duration-200 motion-reduce:transition-none"
           style={{ left: `${fillPercent}%` }}
         />
       </div>
