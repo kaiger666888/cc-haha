@@ -417,18 +417,27 @@ describe('WorkspacePanel', () => {
       expect(view.getByTestId('workspace-code').textContent).toContain('console.log("new")')
     })
     expect(view.queryByRole('tablist', { name: 'Preview tabs' })).toBeNull()
-    expect(view.getByTestId('workspace-preview-header').textContent).toContain('src/app.ts')
+    const previewHeader = view.getByTestId('workspace-preview-header')
+    expect(previewHeader.textContent).toContain('src/app.ts')
+    expect(previewHeader.textContent).toContain('+4')
+    expect(previewHeader.textContent).toContain('-1')
+    expect(view.queryByTestId('workspace-review-toolbar')).toBeNull()
     expect(view.getByTestId('workspace-review-layout').className).toContain('grid-cols-1')
+    expect(view.getByTestId('workspace-review-layout').className).toContain('overflow-hidden')
+    expect(view.getByTestId('workspace-preview-column').className).toContain('min-h-0')
+    expect(view.getByTestId('workspace-preview-column').className).toContain('overflow-hidden')
+    expect(previewHeader.textContent).not.toContain('DIFF')
     expect(view.queryByTestId('workspace-file-navigator')).toBeNull()
     await clickElement(view.getByRole('button', { name: 'Show file navigator' }))
     expect(view.getByTestId('workspace-file-navigator').className).toContain('absolute')
+    expect(view.queryByTestId('workspace-file-navigator-header')).toBeNull()
+    expect(view.queryByText('1 file')).toBeNull()
     expect(view.getByTestId('workspace-file-navigator').className).toContain('w-[min(280px,100%)]')
     expect(view.getByTestId('workspace-review-layout').className).toContain('grid-cols-1')
     const expandedPanel = view.getByTestId('workspace-panel')
     expect(expandedPanel.style.width).toBe('860px')
     expect(expandedPanel.style.maxWidth).toBe('min(62%, calc(100% - 328px))')
     expect(expandedPanel.style.minWidth).toBe('min(420px, 54%)')
-    expect(view.getAllByText('Diff').length).toBeGreaterThan(0)
   })
 
   it.each([
@@ -482,7 +491,7 @@ describe('WorkspacePanel', () => {
     expect(view.getByLabelText(statusLabel).textContent).toBe(status === 'modified' ? 'M' : 'A')
   })
 
-  it('presents one review toolbar and reports filtered changed-file results', async () => {
+  it('keeps navigator controls and filter feedback in one header when no file is open', async () => {
     const sessionId = 'session-review-toolbar'
     await setWorkspaceState((state) => ({
       ...state,
@@ -509,16 +518,16 @@ describe('WorkspacePanel', () => {
 
     const view = await renderPanel(sessionId)
 
-    const toolbar = view.getByTestId('workspace-review-toolbar')
-    expect(toolbar.getAttribute('aria-label')).toBe('Review workspace')
-    expect(toolbar.tagName).toBe('HEADER')
-    expect(toolbar.textContent).toContain('claude-code-haha')
-    expect(toolbar.textContent).toContain('main')
-    expect(toolbar.textContent).toContain('+15')
-    expect(toolbar.textContent).toContain('-3')
+    expect(view.queryByTestId('workspace-review-toolbar')).toBeNull()
+    const navigatorHeader = view.getByTestId('workspace-file-navigator-header')
+    expect(navigatorHeader.tagName).toBe('HEADER')
+    expect(navigatorHeader.textContent).toContain('Changed files')
+    expect(view.getByRole('button', { name: /Refresh/ })).toBeTruthy()
+    expect(view.queryByText('claude-code-haha')).toBeNull()
+    expect(view.queryByText('main')).toBeNull()
 
     const filter = view.getByPlaceholderText('Filter files...')
-    expect(view.getByText('3 files')).toBeTruthy()
+    expect(view.queryByText('3 files')).toBeNull()
     fireEvent.change(filter, { target: { value: 'theme' } })
 
     expect(view.getByText('1 of 3 files')).toBeTruthy()
@@ -566,6 +575,9 @@ describe('WorkspacePanel', () => {
     const view = await renderPanel(sessionId, { embedded: true, forceVisible: true })
 
     expect(view.getByTestId('workspace-review-layout').className).toContain('grid-cols-[minmax(0,1fr)_280px]')
+    expect(view.getByTestId('workspace-review-layout').className).toContain('overflow-hidden')
+    expect(view.getByTestId('workspace-preview-column').className).toContain('min-h-0')
+    expect(view.getByTestId('workspace-preview-column').className).toContain('overflow-hidden')
     expect(view.getByTestId('workspace-file-navigator').className).not.toContain('absolute')
     expect(view.getByRole('button', { name: 'Hide file navigator' })).toBeTruthy()
   })
@@ -644,7 +656,7 @@ describe('WorkspacePanel', () => {
     const oldPath = view.getByText('desktop/src/components/workspace/LegacyWorkspacePanelWithALongName.tsx')
     const renamedRow = oldPath.closest('button')
 
-    expect(renamedRow?.className).toContain('min-h-[52px]')
+    expect(renamedRow?.className).toContain('min-h-11')
     expect(renamedRow?.className).not.toContain('h-9')
     expect(view.getByText('next.ts')).toBeTruthy()
   })
@@ -844,7 +856,7 @@ describe('WorkspacePanel', () => {
     expect(view.getByRole('button', { name: 'All files' })).toBeTruthy()
     expect(await view.findByText('src')).toBeTruthy()
     expect(await view.findByText('README.md')).toBeTruthy()
-    expect(view.getByRole('status').textContent).toBe('2 items')
+    expect(view.queryByRole('status')).toBeNull()
     expect(view.queryByText('No changes')).toBeNull()
 
     fireEvent.change(view.getByPlaceholderText('Filter files...'), { target: { value: 'readme' } })
@@ -965,7 +977,6 @@ describe('WorkspacePanel', () => {
     await waitFor(() => {
       expect(view.getByTestId('workspace-code').textContent).toContain('export const ready = true')
     })
-    expect(view.getAllByText('File').length).toBeGreaterThan(0)
   })
 
   it('renders multiple preview tabs and closes only the exact requested tab', async () => {
@@ -1097,13 +1108,13 @@ describe('WorkspacePanel', () => {
 
     await clickElement(view.getByRole('button', { name: 'Show file navigator' }))
 
-    expect(view.getByRole('button', { name: 'Changed files' })).toBeTruthy()
+    expect(view.queryByRole('button', { name: 'Changed files' })).toBeNull()
     expect(view.getByPlaceholderText('Filter files...')).toBeTruthy()
     expect(view.container.querySelector('[data-workspace-file-path="src/app.ts"]')).toBeTruthy()
     expect(view.getByRole('button', { name: 'Hide file navigator' })).toBeTruthy()
   })
 
-  it('defers all-files tree loading while the file navigator is hidden behind a preview', async () => {
+  it('keeps a preview navigator scoped to changed files when the previous view was all files', async () => {
     getMocks().getWorkspaceTreeMock.mockResolvedValue({
       state: 'ok',
       path: '',
@@ -1128,7 +1139,12 @@ describe('WorkspacePanel', () => {
           repoName: 'repo',
           branch: 'main',
           isGitRepo: true,
-          changedFiles: [],
+          changedFiles: [{
+            path: 'src/app.ts',
+            status: 'modified',
+            additions: 2,
+            deletions: 1,
+          }],
         },
       },
       previewTabsBySession: {
@@ -1156,11 +1172,10 @@ describe('WorkspacePanel', () => {
     expect(getMocks().getWorkspaceTreeMock).not.toHaveBeenCalled()
 
     await clickElement(view.getByRole('button', { name: 'Show file navigator' }))
+    await flushReactWork()
 
-    await waitFor(() => {
-      expect(getMocks().getWorkspaceTreeMock).toHaveBeenCalledWith('session-preview-hidden-tree', '')
-    })
-    expect(view.getByText('src')).toBeTruthy()
+    expect(getMocks().getWorkspaceTreeMock).not.toHaveBeenCalled()
+    expect(view.container.querySelector('[data-workspace-file-path="src/app.ts"]')).toBeTruthy()
   })
 
   it('uses theme tokens for the panel, preview header, and code surface in dark mode', async () => {
@@ -1268,7 +1283,8 @@ describe('WorkspacePanel', () => {
 
     expect(highlightedCode).toContain('+line 1')
     expect(highlightedCode).toContain('+line 1999')
-    expect(highlightedCode).not.toContain('+line 2000')
+    expect(highlightedCode).toContain('+line 2000')
+    expect(highlightedCode).not.toContain('+line 2001')
     await clickElement(view.getByRole('button', { name: 'Show all loaded lines' }))
 
     await waitFor(() => {
@@ -1325,7 +1341,10 @@ describe('WorkspacePanel', () => {
 
     expect(firstRow?.className).toContain('w-max')
     expect(firstRow?.className).toContain('min-w-full')
-    expect(firstRow?.className).toContain('grid-cols-[46px_46px_30px_20px_minmax(max-content,1fr)]')
+    expect((firstRow as HTMLElement | null)?.style.gridTemplateColumns).toBe(
+      'var(--workspace-diff-gutter-width) minmax(max-content, 1fr)',
+    )
+    expect(firstRow?.querySelector('[data-diff-number-gutter]')).toBeTruthy()
     expect(diffSurface.textContent).toContain(longDiffLine)
   })
 

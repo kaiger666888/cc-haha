@@ -49,6 +49,52 @@ describe('WorkspaceDiffSurface', () => {
     highlightRenderSpy.mockClear()
   })
 
+  it('keeps one scroll surface while hiding redundant single-file patch chrome', () => {
+    render(<WorkspaceDiffSurface value={diff} path="src/a.ts" hideSingleFileHeader />)
+
+    const scrollSurface = screen.getByTestId('workspace-diff-scroll')
+    expect(scrollSurface.className).toContain('min-h-0')
+    expect(scrollSurface.className).toContain('overflow-auto')
+    expect(scrollSurface).toHaveStyle({ containerType: 'inline-size' })
+    expect(screen.getByTestId('workspace-diff-content').className).toContain('w-max')
+    expect(screen.queryByTestId('workspace-diff-file-header')).not.toBeInTheDocument()
+    expect(screen.queryByText('--- a/src/a.ts')).not.toBeInTheDocument()
+    expect(screen.queryByText('+++ b/src/a.ts')).not.toBeInTheDocument()
+    expect(screen.getByText('@@ -10,2 +10,3 @@')).toBeInTheDocument()
+    expect(getCodeRow('const a = 1')).toBeInTheDocument()
+  })
+
+  it('does not spend the visible line limit on hidden single-file patch metadata', () => {
+    render(<WorkspaceDiffSurface value={diff} path="src/a.ts" hideSingleFileHeader lineLimit={2} />)
+
+    expect(screen.getByText('@@ -10,2 +10,3 @@')).toBeInTheDocument()
+    expect(getCodeRow('const a = 1')).toBeInTheDocument()
+    expect(document.querySelector('[data-row-text="const b = 2"]')).not.toBeInTheDocument()
+  })
+
+  it('uses the Codex-style compact number gutter without a dedicated comment column', () => {
+    render(<WorkspaceDiffSurface value={diff} path="src/a.ts" />)
+
+    const code = screen.getByTestId('workspace-code')
+    const row = getCodeRow('const b = 3').closest<HTMLElement>('[data-diff-row-id]')
+    const gutter = row?.querySelector<HTMLElement>('[data-diff-number-gutter]')
+    const commentButton = screen.getByRole('button', { name: 'Comment on src/a.ts new line 11' })
+
+    expect(code.style.getPropertyValue('--workspace-diff-gutter-width')).toBe('6ch')
+    expect(row).toHaveStyle({
+      gridTemplateColumns: 'var(--workspace-diff-gutter-width) minmax(max-content, 1fr)',
+    })
+    expect(gutter).toHaveTextContent('11')
+    expect(gutter).toContainElement(commentButton)
+    expect(gutter?.querySelector('[data-diff-gutter-utility-slot]')).toContainElement(commentButton)
+    expect(gutter?.className).toContain('bg-[var(--color-diff-added-bg)]')
+    expect(getCodeRow('const a = 1').closest('[data-diff-row-id]')?.querySelector('[data-diff-number-gutter]')?.className).toContain('bg-[var(--color-code-bg)]')
+    expect(commentButton.className).toContain('h-5')
+    expect(commentButton.className).toContain('w-5')
+    expect(row?.querySelectorAll('[data-diff-line-number]')).toHaveLength(1)
+    expect(row?.className).toContain('min-h-5')
+  })
+
   it('submits a forward range with its source coordinates and quote', () => {
     const onAddComment = vi.fn()
     render(<WorkspaceDiffSurface value={diff} path="src/a.ts" onAddComment={onAddComment} />)
@@ -104,12 +150,23 @@ describe('WorkspaceDiffSurface', () => {
     expect(lastRow).toHaveAttribute('aria-selected', 'true')
     expect(lastRow).toHaveAttribute('data-range-edge', 'end')
     expect(document.querySelectorAll('[data-diff-selection-rail]')).toHaveLength(3)
+    document.querySelectorAll('[data-diff-selection-rail]').forEach((rail) => {
+      expect(rail.closest('[data-diff-number-gutter]')).not.toBeNull()
+    })
     expect(firstRow?.className).toContain('bg-[var(--color-info-container)]')
     expect(firstRow?.className).not.toContain('bg-[var(--color-diff-added-bg)]')
     expect(screen.getByTestId('workspace-code').className).toContain('text-[13px]')
     const editor = screen.getByRole('textbox', { name: 'Review comment' })
-    expect(editor.closest('[data-diff-editor]')?.className).toContain('rounded-[10px]')
-    expect(editor.className).toContain('var(--color-info)')
+    const editorContainer = editor.closest('[data-diff-editor]')
+    expect(editorContainer?.className).toContain('max-w-3xl')
+    expect(editorContainer?.className).toContain('sticky')
+    expect(editorContainer).toHaveStyle({ left: 'var(--workspace-diff-gutter-width)' })
+    expect(editorContainer).toHaveStyle({ width: 'min(48rem, calc(100cqi - var(--workspace-diff-gutter-width) - 0.75rem))' })
+    expect(editorContainer?.className).not.toContain('ml-[116px]')
+    expect(editorContainer?.className).not.toContain('min-w-[420px]')
+    expect(editorContainer).toHaveTextContent('Local comment')
+    expect(editor.className).toContain('min-h-0')
+    expect(editor.className).not.toContain('shadow-[inset_0_0_0_1px')
     expect(screen.getByRole('button', { name: 'Comment on src/a.ts new line 10' })).not.toHaveAttribute('data-selection-focus')
     const focusedGutter = screen.getByRole('button', { name: 'Comment on src/a.ts new line 12' })
     expect(focusedGutter).toHaveAttribute('data-selection-focus', 'true')
@@ -257,14 +314,14 @@ describe('WorkspaceDiffSurface', () => {
 
     expect(lastVisibleButton).toHaveFocus()
     expect(visibleButtons.filter((button) => button.tabIndex === 0)).toHaveLength(1)
-    expect(screen.getByText('Showing first 5 of 11 loaded lines.')).toBeInTheDocument()
+    expect(screen.getByText('Showing first 5 of 9 loaded lines.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Show all loaded lines' })).toBeInTheDocument()
   })
 
   it('invalidates a hidden selection on collapse while preserving its draft and visible roving target', () => {
     render(<WorkspaceDiffSurface value={diff} path="src/a.ts" lineLimit={5} />)
     fireEvent.click(screen.getByRole('button', { name: 'Show all loaded lines' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Comment on src/a.ts new line 11' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Comment on src/a.ts new line 12' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Review comment' }), {
       target: { value: 'Keep this collapsed draft' },
     })

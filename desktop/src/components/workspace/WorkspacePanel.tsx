@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { CircleAlert, Code2, File as FileIcon, FileText, FolderOpen, GitCompareArrows, Image as ImageIcon, MessageCircle, PanelRightClose, PanelRightOpen, RefreshCw, Search, Settings2, X, type LucideIcon } from 'lucide-react'
+import { CircleAlert, Code2, File as FileIcon, FileText, FolderOpen, Image as ImageIcon, MessageCircle, PanelRightClose, PanelRightOpen, RefreshCw, Search, Settings2, X, type LucideIcon } from 'lucide-react'
 import { Highlight } from 'prism-react-renderer'
 import type {
   WorkspaceChangedFile,
@@ -823,8 +823,8 @@ function ChangedFileRow({
       data-workspace-file-row=""
       data-workspace-file-path={file.path}
       title={file.path}
-      className={`group mx-2 flex w-[calc(100%-16px)] items-center gap-2 rounded-[6px] px-2.5 text-left transition-[background-color,transform] duration-200 ease-out active:scale-[0.99] ${
-        file.oldPath ? 'min-h-[52px] py-1.5' : 'h-10'
+      className={`group mx-2 flex w-[calc(100%-16px)] items-center gap-1.5 rounded-[5px] px-2 text-left transition-[background-color,transform] duration-150 ease-out active:scale-[0.99] ${
+        file.oldPath ? 'min-h-11 py-1' : 'h-[30px]'
       } ${
         active
           ? 'bg-[var(--color-info-container)] shadow-[inset_3px_0_0_var(--color-info)]'
@@ -832,17 +832,17 @@ function ChangedFileRow({
       }`}
     >
       <span
-        className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-[6px] text-[var(--color-text-tertiary)] transition-colors group-hover:text-[var(--color-text-secondary)]"
+        className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center text-[var(--color-text-tertiary)] transition-colors group-hover:text-[var(--color-text-secondary)]"
         title={identity.languageLabel}
       >
         <IdentityIcon aria-hidden="true" size={14} strokeWidth={1.8} />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-baseline gap-1.5">
+        <div className="flex min-w-0 items-baseline">
           <span className="truncate text-[12px] font-medium text-[var(--color-text-primary)]">{fileName}</span>
-          <span className="shrink-0 text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
+          <span className="sr-only">
             {identity.shortLabel}
-            <span className="sr-only"> {identity.languageLabel}</span>
+            <span> {identity.languageLabel}</span>
           </span>
         </div>
         {file.oldPath && (
@@ -851,7 +851,7 @@ function ChangedFileRow({
           </div>
         )}
       </div>
-      <div className="shrink-0 text-right font-[var(--font-mono)] text-[11px] leading-4">
+      <div className="shrink-0 text-right font-[var(--font-mono)] text-[10px] leading-4">
         <span className="text-[var(--color-success)]">+{file.additions}</span>
         <span className="ml-1 text-[var(--color-error)]">-{file.deletions}</span>
       </div>
@@ -1032,7 +1032,11 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
     previewTabs.find((tab) => tab.id === activePreviewTabId) ?? previewTabs[previewTabs.length - 1] ?? null
   const hasPreviewTabs = previewTabs.length > 0
   const isNavigatorVisible = !hasPreviewTabs || isNavigatorOpen
+  const navigatorView = hasPreviewTabs ? 'changed' : activeView
   const activeTreePath = activePreviewTab?.kind === 'file' ? activePreviewTab.path : null
+  const activeChangedFile = activePreviewTab
+    ? status?.changedFiles.find((file) => file.path === activePreviewTab.path) ?? null
+    : null
   const filteredChangedFiles = useMemo(
     () => (status?.changedFiles ?? []).filter((file) => changedFileMatchesFilter(file, normalizedFilterQuery)),
     [normalizedFilterQuery, status?.changedFiles],
@@ -1041,27 +1045,17 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
     () => groupChangedFiles(filteredChangedFiles),
     [filteredChangedFiles],
   )
-  const changeTotals = useMemo(
-    () => (status?.changedFiles ?? []).reduce(
-      (totals, file) => ({
-        additions: totals.additions + file.additions,
-        deletions: totals.deletions + file.deletions,
-      }),
-      { additions: 0, deletions: 0 },
-    ),
-    [status?.changedFiles],
-  )
   const filteredRootEntries = useMemo(
     () => rootTree?.state === 'ok'
       ? rootTree.entries.filter((entry) => treeEntryMatchesFilter(entry, normalizedFilterQuery, treeByPath))
       : [],
     [normalizedFilterQuery, rootTree, treeByPath],
   )
-  const visibleEntryCount = activeView === 'changed' ? filteredChangedFiles.length : filteredRootEntries.length
-  const totalEntryCount = activeView === 'changed'
+  const visibleEntryCount = navigatorView === 'changed' ? filteredChangedFiles.length : filteredRootEntries.length
+  const totalEntryCount = navigatorView === 'changed'
     ? status?.changedFiles.length ?? 0
     : rootTree?.state === 'ok' ? rootTree.entries.length : 0
-  const filterSummary = activeView === 'changed'
+  const filterSummary = navigatorView === 'changed'
     ? normalizedFilterQuery
       ? t('workspace.filteredFilesCount', { visible: visibleEntryCount, total: totalEntryCount })
       : t('workspace.filesCount', { count: totalEntryCount })
@@ -1100,9 +1094,9 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
   }, [chatState, loadStatus, sessionId, shouldRender, statusLoading])
 
   useEffect(() => {
-    if (!shouldRender || !isNavigatorVisible || activeView !== 'all' || rootTree || rootTreeLoading || rootTreeError) return
+    if (!shouldRender || !isNavigatorVisible || navigatorView !== 'all' || rootTree || rootTreeLoading || rootTreeError) return
     void loadTree(sessionId, '')
-  }, [activeView, isNavigatorVisible, loadTree, rootTree, rootTreeError, rootTreeLoading, sessionId, shouldRender])
+  }, [isNavigatorVisible, loadTree, navigatorView, rootTree, rootTreeError, rootTreeLoading, sessionId, shouldRender])
 
   useEffect(() => {
     if (!previewTabContextMenu && !fileContextMenu) return
@@ -1137,7 +1131,7 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
     if (activePreviewTab) {
       void openPreview(sessionId, activePreviewTab.path, activePreviewTab.kind)
     }
-    if (activeView === 'all') {
+    if (navigatorView === 'all') {
       void loadTree(sessionId, '')
     }
   }
@@ -1370,7 +1364,6 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
       )
     }
 
-    const kindLabel = getPreviewKindLabel(t, activePreviewTab.kind)
     const state = activePreviewTab.state ?? 'loading'
     const refreshErrorMessage = activePreviewError
       || (activePreviewRefreshState ? getInlineStateMessage(t, activePreviewRefreshState) : null)
@@ -1383,29 +1376,43 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
       >
         <div
           data-testid="workspace-preview-header"
-          className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--color-text-primary)]/10 bg-[var(--color-surface)] px-4 text-[12px]"
+          className="flex h-10 shrink-0 items-center gap-2 border-b border-[var(--color-text-primary)]/10 bg-[var(--color-surface)] px-3 text-[12px]"
         >
           <FileText size={15} strokeWidth={1.8} aria-hidden="true" className="shrink-0 text-[var(--color-text-tertiary)]" />
           <span className="min-w-0 truncate font-medium text-[var(--color-text-primary)]">{activePreviewTab.path}</span>
-          <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
-            {kindLabel}
-          </span>
-          <button
-            type="button"
-            aria-label={t('workspace.addToChat')}
-            onClick={() => addWorkspacePathToChat(activePreviewTab.path)}
-            className="ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] px-2 text-[11px] font-medium text-[var(--color-text-secondary)] transition-[color,background-color,transform] duration-200 ease-out hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] active:scale-[0.98]"
-          >
-            <MessageCircle size={14} strokeWidth={1.8} aria-hidden="true" />
-            <span className="hidden min-[960px]:inline">{t('workspace.addToChat')}</span>
-          </button>
-          {activePreviewLoading && state === 'ok' && (
-            <RefreshCw
-              size={13}
-              className="shrink-0 animate-spin text-[var(--color-text-tertiary)]"
-              aria-hidden="true"
-            />
+          {activeChangedFile && (
+            <span className="flex shrink-0 items-center gap-1.5 font-[var(--font-mono)] text-[11px] tabular-nums">
+              <span className="text-[var(--color-success)]">+{activeChangedFile.additions}</span>
+              <span className="text-[var(--color-error)]">-{activeChangedFile.deletions}</span>
+            </span>
           )}
+          <div className="ml-auto flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              aria-label={t('workspace.addToChat')}
+              onClick={() => addWorkspacePathToChat(activePreviewTab.path)}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[7px] px-2 text-[11px] font-medium text-[var(--color-text-secondary)] transition-[color,background-color,transform] duration-200 ease-out hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] active:scale-[0.98]"
+            >
+              <MessageCircle size={14} strokeWidth={1.8} aria-hidden="true" />
+              <span className="hidden min-[960px]:inline">{t('workspace.addToChat')}</span>
+            </button>
+            <ToolbarIconButton Icon={RefreshCw} label={t('workspace.refresh')} onClick={handleRefresh} />
+            <ToolbarIconButton
+              Icon={isNavigatorVisible ? PanelRightClose : PanelRightOpen}
+              label={isNavigatorVisible ? t('workspace.hideNavigator') : t('workspace.showNavigator')}
+              onClick={() => setIsNavigatorOpen((open) => !open)}
+            />
+            {!embedded && (
+              <ToolbarIconButton Icon={X} label={t('workspace.closePanel')} onClick={() => closePanel(sessionId)} />
+            )}
+            {activePreviewLoading && state === 'ok' && (
+              <RefreshCw
+                size={13}
+                className="mx-1 shrink-0 animate-spin text-[var(--color-text-tertiary)]"
+                aria-hidden="true"
+              />
+            )}
+          </div>
         </div>
 
         {state === 'ok' && refreshErrorMessage && !activePreviewLoading && (
@@ -1435,6 +1442,7 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
           <WorkspaceDiffSurface
             value={activePreviewTab.diff ?? ''}
             path={activePreviewTab.path}
+            hideSingleFileHeader
             onAddComment={(selection, note) => addDiffCommentToChat(activePreviewTab.path, selection, note)}
           />
         ) : state === 'ok' && isMarkdownPreview(activePreviewTab) ? (
@@ -1584,47 +1592,12 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
       }
       style={embedded ? undefined : { width: panelWidth, maxWidth: panelMaxWidth, minWidth: panelMinWidth }}
     >
-      <header
-        data-testid="workspace-review-toolbar"
-        aria-label={t('workspace.reviewWorkspace')}
-        className="flex h-12 shrink-0 items-center gap-2.5 border-b border-[var(--color-text-primary)]/10 bg-[var(--color-surface)] px-4"
-      >
-        <GitCompareArrows size={16} strokeWidth={1.8} aria-hidden="true" className="shrink-0 text-[var(--color-text-tertiary)]" />
-        <span className="min-w-0 truncate text-[13px] font-semibold text-[var(--color-text-primary)]">
-          {status?.repoName || t('workbench.tabTitle')}
-        </span>
-        {status?.branch && (
-          <>
-            <span aria-hidden="true" className="h-4 w-px bg-[var(--color-text-primary)]/10" />
-            <span className="max-w-32 truncate text-[11px] text-[var(--color-text-tertiary)]">{status.branch}</span>
-          </>
-        )}
-        <div className="flex shrink-0 items-center gap-2 font-[var(--font-mono)] text-[11px] tabular-nums">
-          <span className="text-[var(--color-success)]">+{changeTotals.additions}</span>
-          <span className="text-[var(--color-error)]">-{changeTotals.deletions}</span>
-        </div>
-
-        <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          <ToolbarIconButton Icon={RefreshCw} label={t('workspace.refresh')} onClick={handleRefresh} />
-          {hasPreviewTabs && (
-            <ToolbarIconButton
-              Icon={isNavigatorVisible ? PanelRightClose : PanelRightOpen}
-              label={isNavigatorVisible ? t('workspace.hideNavigator') : t('workspace.showNavigator')}
-              onClick={() => setIsNavigatorOpen((open) => !open)}
-            />
-          )}
-          {!embedded && (
-            <ToolbarIconButton Icon={X} label={t('workspace.closePanel')} onClick={() => closePanel(sessionId)} />
-          )}
-        </div>
-      </header>
-
       <div
         data-testid="workspace-review-layout"
-        className={`relative grid min-h-0 flex-1 ${hasPreviewTabs && isNavigatorVisible && forceVisible ? 'grid-cols-[minmax(0,1fr)_280px]' : 'grid-cols-1'}`}
+        className={`relative grid min-h-0 flex-1 overflow-hidden ${hasPreviewTabs && isNavigatorVisible && forceVisible ? 'grid-cols-[minmax(0,1fr)_280px]' : 'grid-cols-1'}`}
       >
         {hasPreviewTabs && (
-          <div className="flex min-w-0 flex-col bg-[var(--color-surface)]">
+          <div data-testid="workspace-preview-column" className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--color-surface)]">
             {previewTabs.length > 1 ? renderPreviewTabs() : null}
             {renderPreviewContent()}
           </div>
@@ -1635,7 +1608,11 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
             data-testid="workspace-file-navigator"
             className={`${hasPreviewTabs ? 'border-l border-[var(--color-text-primary)]/10' : ''} ${hasPreviewTabs && !forceVisible ? 'absolute inset-y-0 right-0 z-20 w-[min(280px,100%)] shadow-[-12px_0_28px_rgba(15,23,42,0.08)]' : ''} flex min-h-0 flex-col bg-[var(--color-surface)]`}
           >
-            <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-[var(--color-text-primary)]/10 px-3.5">
+            {!hasPreviewTabs && (
+              <header
+                data-testid="workspace-file-navigator-header"
+                className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[var(--color-text-primary)]/10 px-3"
+              >
               <div className="relative min-w-0">
               <button
                 type="button"
@@ -1679,12 +1656,25 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
                 </div>
               )}
               </div>
-            </div>
+              {!hasPreviewTabs && (
+                <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                  <ToolbarIconButton Icon={RefreshCw} label={t('workspace.refresh')} onClick={handleRefresh} />
+                  {!embedded && (
+                    <ToolbarIconButton Icon={X} label={t('workspace.closePanel')} onClick={() => closePanel(sessionId)} />
+                  )}
+                </div>
+              )}
+              </header>
+            )}
 
-            <WorkspaceFilterInput value={filterQuery} onChange={setFilterQuery} summary={filterSummary} />
+            <WorkspaceFilterInput
+              value={filterQuery}
+              onChange={setFilterQuery}
+              summary={normalizedFilterQuery ? filterSummary : undefined}
+            />
 
             <div className="min-h-0 flex-1 overflow-auto py-1.5">
-              {activeView === 'changed' ? renderChangedView() : renderAllFilesView()}
+              {navigatorView === 'changed' ? renderChangedView() : renderAllFilesView()}
             </div>
           </div>
         )}
