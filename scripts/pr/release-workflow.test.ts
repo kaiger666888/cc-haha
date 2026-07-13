@@ -477,7 +477,7 @@ describe('release desktop workflow', () => {
     expect(desktopPackage.build.nsis?.allowToChangeInstallationDirectory).toBe(true)
   })
 
-  test('Windows NSIS installer fails closed while recovering legacy install-directory data', () => {
+  test('Windows NSIS installer recovers only registered legacy install-directory data', () => {
     const desktopPackage = JSON.parse(readFileSync('desktop/package.json', 'utf8')) as {
       scripts?: Record<string, string>
       build: {
@@ -509,6 +509,7 @@ describe('release desktop workflow', () => {
     expect(installerHook).toContain('ReadEnvStr $3 USERPROFILE')
     expect(installerHook).toContain('ReadEnvStr $6 CLAUDE_CONFIG_DIR')
     expect(installerHook).toContain('ReadEnvStr $7 CC_HAHA_APP_PORTABLE_DIR')
+    expect(installerHook).toContain('No registered installation needs legacy data recovery')
     expect(installerHook).toContain('SetErrorLevel 20')
     expect(installerHook).toContain('Quit')
     expect(recoveryHelper).toContain('function Get-LegacyActiveSource')
@@ -527,19 +528,31 @@ describe('release desktop workflow', () => {
     expect(recoveryHelper).toContain('Test-LexicalPathAtOrBelow')
     expect(recoveryHelper).toContain('untrusted-elevated')
     expect(recoveryHelper).toContain('External CLAUDE_CONFIG_DIR is active while install-contained legacy data still exists')
-    expect(recoveryHelper).toMatch(/Assert-NoRunningApplication[\s\S]*Get-UnsafeLegacySource/)
+    expect(recoveryHelper).toMatch(/\$source = Get-UnsafeLegacySource[\s\S]*Assert-NoRunningApplication/)
+    expect(recoveryHelper).not.toMatch(/InstallerIdentitySafety -eq 'untrusted-elevated' -and\s+@\(Get-ExistingInstallDirs/)
     expect(recoveryHelper).toMatch(/Assert-TreeManifestsEqual[\s\S]*Assert-NoRunningApplication[\s\S]*Write-AppModeAtomically/)
+    expect(recoveryHelper).toContain("AddSeconds(30)")
+    expect(recoveryHelper).toContain('[Console]::Out.WriteLine("Legacy recovery error:')
     expect(recoveryHelper).toContain('reparse point')
     expect(recoveryHelper).toContain('Run-SelfTest')
   })
 
-  test('Windows build and release jobs execute the real legacy recovery self-test', () => {
+  test('Windows build and release jobs execute helper and compiled-installer smoke tests', () => {
     const devWorkflow = readFileSync('.github/workflows/build-desktop-dev.yml', 'utf8')
     const releaseWorkflow = readFileSync('.github/workflows/release-desktop.yml', 'utf8')
+    const installerSmoke = readFileSync('desktop/scripts/windows-installer-smoke.ps1', 'utf8')
 
     for (const workflow of [devWorkflow, releaseWorkflow]) {
       expect(workflow).toContain("if: matrix.smoke_platform == 'windows'")
       expect(workflow).toContain('bun run test:windows-storage-recovery')
+      expect(workflow).toContain("matrix.arch == 'x64'")
+      expect(workflow).toContain('windows-installer-smoke.ps1')
     }
+
+    expect(installerSmoke).toContain('Invoke-CheckedInstaller')
+    expect(installerSmoke).toContain("@('/S', '/currentuser'")
+    expect(installerSmoke).toContain("@('--updated', '/S', '/currentuser'")
+    expect(installerSmoke).toContain('Fresh install did not create the application executable')
+    expect(installerSmoke).toContain('Reinstall removed the application executable')
   })
 })

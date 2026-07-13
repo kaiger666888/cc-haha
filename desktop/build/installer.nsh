@@ -90,9 +90,6 @@ Function CcHahaFinalInstallDir
 FunctionEnd
 
 Function CcHahaRecoverLegacy
-  InitPluginsDir
-  File /oname=$PLUGINSDIR\recover-legacy-install-data.ps1 "${BUILD_RESOURCES_DIR}\recover-legacy-install-data.ps1"
-
   ReadRegStr $4 HKCU "${INSTALL_REGISTRY_KEY}" InstallLocation
   ReadRegStr $5 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
   ReadRegStr $R0 HKCU "${UNINSTALL_REGISTRY_KEY}" UninstallString
@@ -119,6 +116,22 @@ Function CcHahaRecoverLegacy
     Call CcHahaUninstallerParent
     Pop $5
   ${EndIf}
+
+  Push "$INSTDIR"
+  Call CcHahaFinalInstallDir
+  Pop $9
+
+  ${If} $4 == ""
+  ${AndIf} $5 == ""
+    StrCpy $0 "0"
+    StrCpy $1 "No registered installation needs legacy data recovery"
+    DetailPrint "$1"
+    Return
+  ${EndIf}
+
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\recover-legacy-install-data.ps1 "${BUILD_RESOURCES_DIR}\recover-legacy-install-data.ps1"
+
   ReadEnvStr $2 APPDATA
   ReadEnvStr $3 USERPROFILE
   ReadEnvStr $6 CLAUDE_CONFIG_DIR
@@ -133,10 +146,6 @@ Function CcHahaRecoverLegacy
     StrCpy $1 "missing current-user USERPROFILE"
     Return
   ${EndIf}
-
-  Push "$INSTDIR"
-  Call CcHahaFinalInstallDir
-  Pop $9
 
   DetailPrint "Checking registered installations for legacy Claude Code Haha data..."
   nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\recover-legacy-install-data.ps1" -PerUserInstallDir "$4" -PerMachineInstallDir "$5" -CandidateInstallDir "$9" -UserDataDir "$2\Claude Code Haha" -RecoveryRoot "$3\Claude Code Haha Data\Recovered" -ProcessName "${PRODUCT_FILENAME}.exe" -ActiveConfigDir "$6" -ActiveConfigManaged "$7" -InstallerIdentitySafety "$8"'
@@ -161,7 +170,11 @@ FunctionEnd
 
     ${If} $0 != "0"
       DetailPrint "Legacy data recovery stopped the installer (helper exit code: $0; output: $1)"
-      MessageBox MB_ICONSTOP|MB_OK "Claude Code Haha cannot safely recover data stored inside the old application directory. Close the running app and run this installer normally, not as Administrator. The old version and its data have not been removed.$\r$\n$\r$\n无法安全恢复旧安装目录中的数据。请关闭旧程序，并以普通方式（不要使用“以管理员身份运行”）重新运行安装程序。旧版本和原数据尚未删除。"
+      ${If} $1 == ""
+        StrCpy $1 "Recovery helper failed without diagnostic output (exit code $0)"
+      ${EndIf}
+      StrCpy $R2 "$1" 360
+      MessageBox MB_ICONSTOP|MB_OK "Claude Code Haha stopped setup before removing the old version. Reason: $R2$\r$\n$\r$\nClose the app and retry. If the reason mentions an elevated installer, launch setup normally instead of using Run as administrator.$\r$\n$\r$\nClaude Code Haha 已在删除旧版本前停止安装。原因：$R2$\r$\n$\r$\n请关闭旧程序后重试；如果原因提到安装器权限过高，请直接双击运行，不要使用“以管理员身份运行”。旧版本和原数据尚未删除。"
       SetErrorLevel 20
       Quit
     ${EndIf}

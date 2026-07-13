@@ -469,7 +469,7 @@ function Assert-NoRunningApplication {
     [Parameter(Mandatory = $true)][string]$ProcessName
   )
 
-  $deadline = [DateTime]::UtcNow.AddSeconds(5)
+  $deadline = [DateTime]::UtcNow.AddSeconds(30)
   do {
     try {
       $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
@@ -642,7 +642,6 @@ function Invoke-LegacyRecovery {
     [AllowEmptyString()][string]$ActiveConfigDir,
     [AllowEmptyString()][string]$ActiveConfigManaged = '',
     [string]$InstallerIdentitySafety = 'trusted-user',
-    [string[]]$RegisteredInstallDirs = @(),
     [switch]$SkipProcessCheck
   )
 
@@ -650,13 +649,6 @@ function Invoke-LegacyRecovery {
   $existingInstallDirs = @(Get-ExistingInstallDirs -InstallDirs $potentialInstallDirs)
   if ($existingInstallDirs.Count -eq 0) {
     return $null
-  }
-  if ($InstallerIdentitySafety -eq 'untrusted-elevated' -and
-      @(Get-ExistingInstallDirs -InstallDirs $RegisteredInstallDirs).Count -gt 0) {
-    throw 'An existing registered installation cannot be upgraded from an elevated installer without the original user process. Run the installer normally (not as Administrator).'
-  }
-  if (-not $SkipProcessCheck) {
-    Assert-NoRunningApplication -InstallDirs $existingInstallDirs -ProcessName $ProcessName
   }
 
   $source = Get-UnsafeLegacySource `
@@ -670,6 +662,9 @@ function Invoke-LegacyRecovery {
   }
   if ($InstallerIdentitySafety -eq 'untrusted-elevated') {
     throw 'Legacy data recovery was requested from an elevated installer without the original user process. Run the installer normally (not as Administrator) so recovery is written to the correct Windows user profile.'
+  }
+  if (-not $SkipProcessCheck) {
+    Assert-NoRunningApplication -InstallDirs $existingInstallDirs -ProcessName $ProcessName
   }
 
   foreach ($installDir in $potentialInstallDirs) {
@@ -789,18 +784,29 @@ function Run-SelfTest {
     }
     Assert-SelfTest -Condition $elevatedFailed -Message 'untrusted elevated recovery did not fail closed'
 
+    $elevatedDefaultInstall = Join-Path $testRoot 'elevated default install'
+    New-Item -ItemType Directory -Path $elevatedDefaultInstall -Force | Out-Null
+    $elevatedDefaultResult = Invoke-LegacyRecovery `
+      -InstallDirs @($elevatedDefaultInstall) `
+      -UserDataDir (Join-Path $testRoot 'elevated default app data') `
+      -RecoveryRoot (Join-Path $testRoot 'elevated default recovery') -ProcessName $ProcessName `
+      -ActiveConfigDir '' -InstallerIdentitySafety 'untrusted-elevated' -SkipProcessCheck
+    Assert-SelfTest -Condition ($null -eq $elevatedDefaultResult) -Message 'elevated default-mode reinstall was blocked without legacy data'
+
     $wrongIdentityInstall = Join-Path $testRoot 'registered shared install'
-    New-Item -ItemType Directory -Path (Join-Path $wrongIdentityInstall 'custom data') -Force | Out-Null
-    Set-Content -LiteralPath (Join-Path $wrongIdentityInstall 'custom data\settings.json') -Value 'other-user-data' -NoNewline
+    $wrongIdentityData = Join-Path $wrongIdentityInstall 'custom data'
+    New-Item -ItemType Directory -Path $wrongIdentityData -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $wrongIdentityData 'settings.json') -Value 'other-user-data' -NoNewline
+    Write-TestMode -Dir $wrongIdentityData -Value @{ mode = 'portable'; portable_dir = $wrongIdentityData }
     $wrongIdentityFailed = $false
     try {
       Invoke-LegacyRecovery `
-        -InstallDirs @($wrongIdentityInstall) -RegisteredInstallDirs @($wrongIdentityInstall) `
+        -InstallDirs @($wrongIdentityInstall) `
         -UserDataDir (Join-Path $testRoot 'wrong identity app data') `
         -RecoveryRoot (Join-Path $testRoot 'wrong identity recovery') -ProcessName $ProcessName `
         -ActiveConfigDir '' -InstallerIdentitySafety 'untrusted-elevated' -SkipProcessCheck | Out-Null
     } catch {
-      $wrongIdentityFailed = $_.Exception.Message.Contains('existing registered installation')
+      $wrongIdentityFailed = $_.Exception.Message.Contains('another Windows user')
     }
     Assert-SelfTest -Condition $wrongIdentityFailed -Message 'untrusted elevated installer treated invisible user metadata as safe'
 
@@ -960,13 +966,13 @@ try {
     -ActiveConfigDir $ActiveConfigDir `
     -ActiveConfigManaged $ActiveConfigManaged `
     -InstallerIdentitySafety $InstallerIdentitySafety `
-    -RegisteredInstallDirs @($PerUserInstallDir, $PerMachineInstallDir) `
     -SkipProcessCheck:$SkipProcessCheck
   if (-not [string]::IsNullOrWhiteSpace([string]$result)) {
     [Console]::Out.WriteLine("Recovered legacy data to $result")
   }
   exit 0
 } catch {
-  [Console]::Error.WriteLine($_.Exception.Message)
+  $message = ([string]$_.Exception.Message) -replace '[\r\n]+', ' '
+  [Console]::Out.WriteLine("Legacy recovery error: $message")
   exit 20
 }
