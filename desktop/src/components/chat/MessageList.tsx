@@ -6,6 +6,7 @@ import { sessionsApi, type SessionTurnCheckpoint } from '../../api/sessions'
 import { listPendingPermissions, useChatStore } from '../../stores/chatStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useWorkspaceChatContextStore } from '../../stores/workspaceChatContextStore'
+import { useWorkspacePanelStore, type WorkspacePanelOrigin } from '../../stores/workspacePanelStore'
 import { SETTINGS_TAB_ID, useTabStore } from '../../stores/tabStore'
 import { useTeamStore } from '../../stores/teamStore'
 import { useUIStore } from '../../stores/uiStore'
@@ -972,6 +973,18 @@ const CHAT_RENDER_ITEM_CLASS = [
   'chat-render-item',
 ].join(' ')
 
+export function isRenderItemFullyVisibleInChatScroller(renderItem: HTMLElement) {
+  const scroller = renderItem.closest<HTMLElement>('.chat-scroll-area')
+  if (!scroller) return false
+
+  const itemRect = renderItem.getBoundingClientRect()
+  const scrollerRect = scroller.getBoundingClientRect()
+  return itemRect.top >= scrollerRect.top &&
+    itemRect.bottom <= scrollerRect.bottom &&
+    itemRect.left >= scrollerRect.left &&
+    itemRect.right <= scrollerRect.right
+}
+
 type SessionScrollSnapshot = {
   scrollTop: number
   wasAtBottom: boolean
@@ -1415,6 +1428,12 @@ const MeasuredRenderItem = memo(function MeasuredRenderItem({
 export function MessageList({ sessionId, compact = false }: MessageListProps = {}) {
   const activeTabId = useTabStore((s) => s.activeTabId)
   const resolvedSessionId = sessionId ?? activeTabId
+  const isWorkspacePanelOpen = useWorkspacePanelStore((state) =>
+    resolvedSessionId ? state.isPanelOpen(resolvedSessionId) : false,
+  )
+  const workspacePanelOrigin = useWorkspacePanelStore((state) =>
+    resolvedSessionId ? state.originBySession[resolvedSessionId] ?? null : null,
+  )
   const sessionState = useChatStore((s) =>
     resolvedSessionId ? s.sessions[resolvedSessionId] : undefined,
   )
@@ -1458,6 +1477,8 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
   const pendingMeasuredHeightsRef = useRef(false)
   const measureFlushFrameRef = useRef<number | null>(null)
   const navigationHighlightTimerRef = useRef<number | null>(null)
+  const workspaceOriginRestoreFrameRef = useRef<number | null>(null)
+  const workspaceOriginSessionRef = useRef(resolvedSessionId)
   const lastAutoScrollAtRef = useRef(0)
   const lastContentResizeFollowHeightRef = useRef<number | null>(null)
   const shouldAutoScrollRef = useRef(true)
@@ -1499,6 +1520,9 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     }
     if (navigationHighlightTimerRef.current !== null) {
       window.clearTimeout(navigationHighlightTimerRef.current)
+    }
+    if (workspaceOriginRestoreFrameRef.current !== null) {
+      cancelAnimationFrame(workspaceOriginRestoreFrameRef.current)
     }
   }, [])
 
@@ -2179,6 +2203,81 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     virtualTranscriptWindow.totalHeight,
     virtualViewport.viewportHeight,
   ])
+
+  const restoreWorkspacePanelOrigin = useCallback((origin: WorkspacePanelOrigin, attempt = 0) => {
+    const container = scrollContainerRef.current
+    const content = scrollContentRef.current
+    if (!container || !content || !resolvedSessionId) return
+
+    const renderItem = [...content.querySelectorAll<HTMLElement>('[data-chat-render-item-key]')]
+      .find((node) => node.dataset.chatRenderItemKey === origin.sourceTurnKey)
+    const opener = renderItem
+      ? [...renderItem.querySelectorAll<HTMLElement>('[id]')]
+          .find((node) => node.id === origin.sourceElementId)
+      : null
+
+    if (renderItem && opener) {
+      if (!isRenderItemFullyVisibleInChatScroller(renderItem)) {
+        renderItem.scrollIntoView({ block: 'nearest' })
+      }
+      opener.focus({ preventScroll: true })
+      useWorkspacePanelStore.getState().clearOrigin(resolvedSessionId)
+      workspaceOriginRestoreFrameRef.current = null
+      return
+    }
+
+    const renderIndex = renderItemKeys.indexOf(origin.sourceTurnKey)
+    if (!renderItem && renderIndex >= 0) {
+      const viewportHeight = container.clientHeight || virtualViewport.viewportHeight || VIRTUAL_DEFAULT_VIEWPORT_HEIGHT
+      const targetScrollTop = clampNumber(
+        (virtualTranscriptWindow.offsets[renderIndex] ?? 0) - viewportHeight * CONVERSATION_NAVIGATION_READING_ANCHOR_RATIO,
+        0,
+        Math.max(0, virtualTranscriptWindow.totalHeight - viewportHeight),
+      )
+      shouldAutoScrollRef.current = false
+      setScrollTopWithoutLayoutRead(container, targetScrollTop)
+      setVirtualViewport({ scrollTop: targetScrollTop, viewportHeight })
+    }
+
+    if (attempt >= 7 || renderIndex < 0) {
+      useWorkspacePanelStore.getState().clearOrigin(resolvedSessionId)
+      workspaceOriginRestoreFrameRef.current = null
+      return
+    }
+
+    workspaceOriginRestoreFrameRef.current = requestAnimationFrame(() => {
+      restoreWorkspacePanelOrigin(origin, attempt + 1)
+    })
+  }, [
+    renderItemKeys,
+    resolvedSessionId,
+    virtualTranscriptWindow.offsets,
+    virtualTranscriptWindow.totalHeight,
+    virtualViewport.viewportHeight,
+  ])
+
+  useEffect(() => {
+    if (workspaceOriginSessionRef.current !== resolvedSessionId) {
+      workspaceOriginSessionRef.current = resolvedSessionId
+      if (workspaceOriginRestoreFrameRef.current !== null) {
+        cancelAnimationFrame(workspaceOriginRestoreFrameRef.current)
+        workspaceOriginRestoreFrameRef.current = null
+      }
+    }
+    if (isWorkspacePanelOpen) {
+      if (workspaceOriginRestoreFrameRef.current !== null) {
+        cancelAnimationFrame(workspaceOriginRestoreFrameRef.current)
+        workspaceOriginRestoreFrameRef.current = null
+      }
+      return
+    }
+    if (!workspacePanelOrigin || workspaceOriginRestoreFrameRef.current !== null) return
+
+    workspaceOriginRestoreFrameRef.current = requestAnimationFrame(() => {
+      workspaceOriginRestoreFrameRef.current = null
+      restoreWorkspacePanelOrigin(workspacePanelOrigin)
+    })
+  }, [isWorkspacePanelOpen, resolvedSessionId, restoreWorkspacePanelOrigin, workspacePanelOrigin])
 
   const renderTranscriptItem = (item: RenderItem, index: number) => {
     const cardsForItem = turnCardsByRenderIndex.get(index) ?? []

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { MessageCircle } from 'lucide-react'
+import { CircleAlert, Code2, File as FileIcon, FileText, Image as ImageIcon, MessageCircle, RefreshCw, Settings2, type LucideIcon } from 'lucide-react'
 import { Highlight } from 'prism-react-renderer'
 import type {
   WorkspaceChangedFile,
@@ -27,8 +27,10 @@ import {
   WORKSPACE_PREVIEW_LINE_LIMIT,
   WorkspaceDiffSurface,
   workspacePrismTheme,
+  type WorkspaceDiffCommentSelection,
 } from './WorkspaceCodeSurface'
 import { WorkspaceFileOpenWith } from './WorkspaceFileOpenWith'
+import { getFileIdentity, getWorkspaceStatusLabel, type WorkspaceFileIdentity } from './fileIdentity'
 
 type WorkspacePanelProps = {
   sessionId: string
@@ -100,6 +102,14 @@ const FILE_STATUS_META: Record<WorkspaceFileStatus, { label: string; className: 
     label: '?',
     className: 'border-[var(--color-outline)]/45 bg-[var(--color-outline)]/10 text-[var(--color-text-secondary)]',
   },
+}
+
+const FILE_IDENTITY_ICONS: Record<WorkspaceFileIdentity['icon'], LucideIcon> = {
+  code: Code2,
+  config: Settings2,
+  document: FileText,
+  image: ImageIcon,
+  file: FileIcon,
 }
 
 const EMPTY_TREE_BY_PATH: Record<string, WorkspaceTreeResult | undefined> = {}
@@ -435,11 +445,12 @@ function WorkspaceFilterInput({
 }
 
 function FileStatusBadge({ status }: { status: WorkspaceFileStatus }) {
+  const t = useTranslation()
   const meta = FILE_STATUS_META[status]
   return (
     <span
       className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px] font-semibold ${meta.className}`}
-      aria-label={status}
+      aria-label={getWorkspaceStatusLabel(status, t)}
     >
       {meta.label}
     </span>
@@ -765,23 +776,43 @@ function ImagePreview({ tab }: { tab: WorkspacePreviewTab }) {
 
 function ChangedFileRow({
   file,
+  active,
   onClick,
   onContextMenu,
 }: {
   file: WorkspaceChangedFile
+  active: boolean
   onClick: () => void
   onContextMenu: (event: MouseEvent, path: string) => void
 }) {
+  const identity = getFileIdentity(file.path)
+  const IdentityIcon = FILE_IDENTITY_ICONS[identity.icon]
+
   return (
     <button
       type="button"
       onClick={onClick}
       onContextMenu={(event) => onContextMenu(event, file.path)}
-      className="mx-2 flex w-[calc(100%-16px)] items-center gap-3 rounded-[7px] px-2 py-2 text-left transition-colors hover:bg-[var(--color-surface-hover)]"
+      aria-current={active ? 'true' : undefined}
+      className={`mx-2 flex w-[calc(100%-16px)] items-center gap-2.5 rounded-[7px] px-2 py-2 text-left transition-colors ${
+        active
+          ? 'bg-[var(--color-surface-selected)] shadow-[inset_0_0_0_1px_var(--color-border-focus)]'
+          : 'hover:bg-[var(--color-surface-hover)]'
+      }`}
     >
       <FileStatusBadge status={file.status} />
+      <span
+        className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-[6px] bg-[var(--color-surface-container)] text-[var(--color-text-secondary)]"
+        title={identity.languageLabel}
+      >
+        <IdentityIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+      </span>
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] font-medium text-[var(--color-text-primary)]">{file.path}</div>
+        <div className="truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-tertiary)]">
+          {identity.shortLabel}
+          <span className="sr-only"> {identity.languageLabel}</span>
+        </div>
         {file.oldPath && (
           <div className="truncate text-[11px] text-[var(--color-text-tertiary)]">
             {file.oldPath}
@@ -988,6 +1019,9 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
   const activePreviewError = useWorkspacePanelStore((state) =>
     activePreviewRequestKey ? state.errors.previewByTabId[activePreviewRequestKey] ?? null : null,
   )
+  const activePreviewRefreshState = useWorkspacePanelStore((state) =>
+    activePreviewRequestKey ? state.errors.previewRefreshStateByTabId[activePreviewRequestKey] ?? null : null,
+  )
 
   useEffect(() => {
     const previous = refreshLifecycleRef.current
@@ -1075,6 +1109,31 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
       lineEnd: line,
       note,
       quote,
+    })
+  }
+
+  const addDiffCommentToChat = (
+    path: string,
+    selection: WorkspaceDiffCommentSelection,
+    note: string,
+  ) => {
+    addWorkspaceReference(sessionId, {
+      kind: 'code-comment',
+      path,
+      absolutePath: resolveWorkspaceAttachmentPath(status?.workDir, path),
+      name: path.split('/').pop() || path,
+      lineStart: selection.lineStart,
+      lineEnd: selection.lineEnd,
+      diffSide: selection.side,
+      hunkId: selection.hunkId,
+      note,
+      quote: selection.quote,
+    })
+    requestAnimationFrame(() => {
+      const composer = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-testid="chat-input-shell"]'),
+      ).find((element) => element.dataset.sessionId === sessionId)
+      composer?.querySelector<HTMLTextAreaElement>('textarea:not([disabled])')?.focus()
     })
   }
 
@@ -1166,6 +1225,7 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
           <ChangedFileRow
             key={`${file.path}:${file.status}:${file.oldPath ?? ''}`}
             file={file}
+            active={activePreviewTabId === `file:${file.path}` || activePreviewTabId === `diff:${file.path}`}
             onClick={() => handleOpenDiff(file.path)}
             onContextMenu={handleFileContextMenu}
           />
@@ -1239,9 +1299,15 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
 
     const kindLabel = getPreviewKindLabel(t, activePreviewTab.kind)
     const state = activePreviewTab.state ?? 'loading'
+    const refreshErrorMessage = activePreviewError
+      || (activePreviewRefreshState ? getInlineStateMessage(t, activePreviewRefreshState) : null)
 
     return (
-      <>
+      <div
+        data-testid="workspace-preview-content"
+        aria-busy={activePreviewLoading}
+        className="flex min-h-0 flex-1 flex-col"
+      >
         <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-3 text-[12px]">
           <span className="truncate text-[var(--color-text-tertiary)]">{status?.repoName || 'workspace'}</span>
           {activePreviewTab.path.split('/').map((segment, index, segments) => (
@@ -1260,12 +1326,38 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
             <span aria-hidden="true" className="material-symbols-outlined text-[14px]">person_add</span>
             <span>{t('workspace.addToChat')}</span>
           </button>
+          {activePreviewLoading && state === 'ok' && (
+            <RefreshCw
+              size={13}
+              className="shrink-0 animate-spin text-[var(--color-text-tertiary)]"
+              aria-hidden="true"
+            />
+          )}
           <span className="shrink-0 rounded-[5px] border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.1em] text-[var(--color-text-tertiary)]">
             {kindLabel}
           </span>
         </div>
 
-        {activePreviewLoading || state === 'loading' ? (
+        {state === 'ok' && refreshErrorMessage && !activePreviewLoading && (
+          <div
+            role="alert"
+            className="flex shrink-0 items-center gap-2 border-b border-[var(--color-error)]/20 bg-[var(--color-error)]/6 px-3 py-2 text-[11px] text-[var(--color-error)]"
+          >
+            <CircleAlert size={15} className="shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">{refreshErrorMessage}</span>
+            <button
+              type="button"
+              onClick={() => {
+                void openPreview(sessionId, activePreviewTab.path, activePreviewTab.kind)
+              }}
+              className="shrink-0 rounded-[6px] border border-[var(--color-error)]/30 px-2 py-1 font-medium hover:bg-[var(--color-error)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-error)]/25"
+            >
+              {t('common.retry')}
+            </button>
+          </div>
+        )}
+
+        {state === 'loading' || (activePreviewLoading && state !== 'ok') ? (
           <PanelMessage icon="progress_activity" message={t('workspace.previewState.loading')} />
         ) : state === 'ok' && activePreviewTab.previewType === 'image' ? (
           <ImagePreview tab={activePreviewTab} />
@@ -1273,6 +1365,7 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
           <WorkspaceDiffSurface
             value={activePreviewTab.diff ?? ''}
             path={activePreviewTab.path}
+            onAddComment={(selection, note) => addDiffCommentToChat(activePreviewTab.path, selection, note)}
           />
         ) : state === 'ok' && isMarkdownPreview(activePreviewTab) ? (
           <MarkdownSurface
@@ -1293,7 +1386,7 @@ export function WorkspacePanel({ sessionId, embedded = false, forceVisible = fal
             message={getInlineStateMessage(t, state, activePreviewError || activePreviewTab.error || null)}
           />
         )}
-      </>
+      </div>
     )
   }
 

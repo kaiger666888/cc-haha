@@ -6,6 +6,7 @@ import {
   buildVirtualItemOffsets,
   getActiveConversationNavigationItemId,
   getConversationNavigationTargetScrollTop,
+  isRenderItemFullyVisibleInChatScroller,
   shouldVirtualizeRenderItems,
 } from './MessageList'
 import type { ConversationNavigationItem } from './ConversationNavigator'
@@ -5079,6 +5080,180 @@ describe('MessageList nested tool calls', () => {
     ).toBeTruthy()
     expect(screen.queryByText(/This model does not support images/)).toBeNull()
   })
+
+  it('restores opener focus without scrolling when its render item remains fully visible', async () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [{ id: 'assistant-origin', type: 'assistant_text', content: 'review result', timestamp: 1 }],
+        }),
+      },
+    })
+    const { container } = render(<MessageList />)
+    const opener = screen.getByRole('button', { name: 'Copy reply' })
+    opener.id = 'origin-opener'
+    const renderItem = container.querySelector<HTMLElement>('[data-chat-render-item-key="assistant-origin"]')!
+    const scroller = renderItem.closest<HTMLElement>('.chat-scroll-area')!
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(renderItem, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 500, left: 40, right: 640 } as DOMRect)
+    vi.spyOn(renderItem, 'getBoundingClientRect').mockReturnValue({ top: 120, bottom: 480, left: 60, right: 620 } as DOMRect)
+
+    await act(async () => {
+      useWorkspacePanelStore.getState().openPanel(ACTIVE_TAB)
+      useWorkspacePanelStore.setState({
+        originBySession: {
+          [ACTIVE_TAB]: { sourceTurnKey: 'assistant-origin', sourceElementId: 'origin-opener' },
+        },
+      })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      useWorkspacePanelStore.getState().closePanel(ACTIVE_TAB)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    })
+
+    await waitFor(() => expect(document.activeElement).toBe(opener))
+    expect(scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  it('scrolls a render item clipped by the chat container before restoring opener focus', async () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [{ id: 'assistant-clipped', type: 'assistant_text', content: 'review result', timestamp: 1 }],
+        }),
+      },
+    })
+    const { container } = render(<MessageList />)
+    const opener = screen.getByRole('button', { name: 'Copy reply' })
+    opener.id = 'clipped-origin-opener'
+    const renderItem = container.querySelector<HTMLElement>('[data-chat-render-item-key="assistant-clipped"]')!
+    const scroller = renderItem.closest<HTMLElement>('.chat-scroll-area')!
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(renderItem, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 500, left: 40, right: 640 } as DOMRect)
+    vi.spyOn(renderItem, 'getBoundingClientRect').mockReturnValue({ top: 80, bottom: 460, left: 60, right: 620 } as DOMRect)
+
+    await act(async () => {
+      useWorkspacePanelStore.getState().openPanel(ACTIVE_TAB)
+      useWorkspacePanelStore.setState({
+        originBySession: {
+          [ACTIVE_TAB]: { sourceTurnKey: 'assistant-clipped', sourceElementId: 'clipped-origin-opener' },
+        },
+      })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      useWorkspacePanelStore.getState().closePanel(ACTIVE_TAB)
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    })
+
+    await waitFor(() => expect(document.activeElement).toBe(opener))
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+  })
+
+  it('uses the semantic render key to remount a virtualized origin before focusing it', async () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: Array.from({ length: 220 }, (_, index) => ({
+            id: `virtual-origin-${index}`,
+            type: 'assistant_text' as const,
+            content: `virtual transcript ${index}`,
+            timestamp: index,
+          })),
+        }),
+      },
+    })
+    const { container } = render(<MessageList />)
+    expect(container.querySelector('[data-chat-render-item-key="virtual-origin-0"]')).toBeNull()
+
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    }))
+
+    await act(async () => {
+      useWorkspacePanelStore.getState().openPanel(ACTIVE_TAB)
+      useWorkspacePanelStore.setState({
+        originBySession: {
+          [ACTIVE_TAB]: { sourceTurnKey: 'virtual-origin-0', sourceElementId: 'virtual-origin-opener' },
+        },
+      })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      useWorkspacePanelStore.getState().closePanel(ACTIVE_TAB)
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      frames.shift()?.(0)
+      await Promise.resolve()
+    })
+    const restoredItem = container.querySelector<HTMLElement>('[data-chat-render-item-key="virtual-origin-0"]')
+    expect(restoredItem).not.toBeNull()
+    const opener = restoredItem!.querySelector<HTMLButtonElement>('[aria-label="Copy reply"]')!
+    opener.id = 'virtual-origin-opener'
+
+    await act(async () => {
+      frames.shift()?.(16)
+      await Promise.resolve()
+    })
+
+    expect(document.activeElement).toBe(opener)
+    expect(useWorkspacePanelStore.getState().getOrigin(ACTIVE_TAB)).toBeNull()
+    vi.unstubAllGlobals()
+  })
+
+  it('consumes a closed-panel origin when the source conversation mounts after returning from a workbench tab', async () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [{ id: 'assistant-return', type: 'assistant_text', content: 'returned conversation', timestamp: 1 }],
+        }),
+      },
+    })
+    useWorkspacePanelStore.setState({
+      panelBySession: {
+        [ACTIVE_TAB]: { isOpen: false, activeView: 'changed' },
+      },
+      originBySession: {
+        [ACTIVE_TAB]: { sourceTurnKey: 'assistant-return', sourceElementId: 'return-origin-opener' },
+      },
+    })
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', vi.fn((callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    }))
+
+    const { container } = render(<MessageList />)
+    const opener = screen.getByRole('button', { name: 'Copy reply' })
+    opener.id = 'return-origin-opener'
+    const renderItem = container.querySelector<HTMLElement>('[data-chat-render-item-key="assistant-return"]')!
+    const scroller = renderItem.closest<HTMLElement>('.chat-scroll-area')!
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(renderItem, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 500, left: 40, right: 640 } as DOMRect)
+    vi.spyOn(renderItem, 'getBoundingClientRect').mockReturnValue({ top: 60, bottom: 460, left: 60, right: 620 } as DOMRect)
+
+    for (let attempt = 0; attempt < 20 && document.activeElement !== opener; attempt += 1) {
+      const frame = frames.shift()
+      if (!frame) break
+      await act(async () => {
+        frame(attempt * 16)
+        await Promise.resolve()
+      })
+    }
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    expect(document.activeElement).toBe(opener)
+    expect(useWorkspacePanelStore.getState().getOrigin(ACTIVE_TAB)).toBeNull()
+    vi.unstubAllGlobals()
+  })
 })
 
 describe('shouldVirtualizeRenderItems', () => {
@@ -5151,5 +5326,29 @@ describe('conversation navigation layout', () => {
 
     expect(getConversationNavigationTargetScrollTop(items[0]!, offsets, 400, 650)).toBe(0)
     expect(getConversationNavigationTargetScrollTop(items[2]!, offsets, 400, 650)).toBe(250)
+  })
+})
+
+describe('workspace panel origin visibility', () => {
+  it('does not request scrolling when the render item is fully visible in the chat scroller', () => {
+    const scroller = document.createElement('div')
+    scroller.className = 'chat-scroll-area'
+    const item = document.createElement('div')
+    scroller.append(item)
+    vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 500, left: 40, right: 640 } as DOMRect)
+    vi.spyOn(item, 'getBoundingClientRect').mockReturnValue({ top: 120, bottom: 480, left: 60, right: 620 } as DOMRect)
+
+    expect(isRenderItemFullyVisibleInChatScroller(item)).toBe(true)
+  })
+
+  it('detects an item clipped by its chat scroller even while inside the window viewport', () => {
+    const scroller = document.createElement('div')
+    scroller.className = 'chat-scroll-area'
+    const item = document.createElement('div')
+    scroller.append(item)
+    vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 500, left: 40, right: 640 } as DOMRect)
+    vi.spyOn(item, 'getBoundingClientRect').mockReturnValue({ top: 80, bottom: 460, left: 60, right: 620 } as DOMRect)
+
+    expect(isRenderItemFullyVisibleInChatScroller(item)).toBe(false)
   })
 })
