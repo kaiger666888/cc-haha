@@ -131,6 +131,25 @@ describe('ConversationService', () => {
     await expect(request).resolves.toEqual({ ok: true })
   })
 
+  it('should ignore a stale SDK disconnect after a replacement socket attaches', () => {
+    const svc = new ConversationService()
+    const sessionId = crypto.randomUUID()
+    const firstSocket = { send() {} }
+    const replacementSocket = { send() {} }
+    const session = {
+      sdkSocket: null,
+      pendingOutbound: [],
+      resolveSdkAttached: null,
+    }
+    ;(svc as any).sessions.set(sessionId, session)
+
+    svc.attachSdkConnection(sessionId, firstSocket)
+    svc.attachSdkConnection(sessionId, replacementSocket)
+    svc.detachSdkConnection(sessionId, firstSocket)
+
+    expect(session.sdkSocket).toBe(replacementSocket)
+  })
+
   it('should forward suggested permission updates for allow-for-session decisions', () => {
     const svc = new ConversationService()
     const sent: unknown[] = []
@@ -4105,6 +4124,70 @@ describe('WebSocket Chat Integration', () => {
       conversationService.stopSession(sessionId)
     }
   }, 20_000)
+
+  it('should confirm a permission switch as soon as the SDK control channel connects', async () => {
+    await withMockInitMode('on_first_user', async () => {
+      const createRes = await fetch(`${baseUrl}/api/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workDir: process.cwd(), permissionMode: 'default' }),
+      })
+      expect(createRes.status).toBe(201)
+      const { sessionId } = await createRes.json() as { sessionId: string }
+      const ws = new WebSocket(`${wsUrl}/ws/${sessionId}`)
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error(`Timed out connecting startup permission session ${sessionId}`))
+          }, 5_000)
+          ws.onmessage = (event) => {
+            const msg = JSON.parse(event.data as string)
+            if (msg.type === 'connected') {
+              clearTimeout(timeout)
+              ws.send(JSON.stringify({ type: 'prewarm_session' }))
+              resolve()
+            }
+          }
+          ws.onerror = () => {
+            clearTimeout(timeout)
+            reject(new Error(`WebSocket error for startup permission session ${sessionId}`))
+          }
+        })
+
+        await waitUntil(
+          () => Boolean((conversationService as any).sessions.get(sessionId)?.sdkSocket),
+          `SDK control channel for startup permission session ${sessionId}`,
+        )
+        expect(conversationService.getSessionInitMessage(sessionId)).toBeNull()
+
+        const switchStartedAt = performance.now()
+        const confirmation = new Promise<'confirmed'>((resolve, reject) => {
+          ws.onmessage = (event) => {
+            const msg = JSON.parse(event.data as string)
+            if (msg.type === 'permission_mode_changed' && msg.mode === 'auto') {
+              resolve('confirmed')
+            }
+            if (msg.type === 'error') {
+              reject(new Error(msg.message))
+            }
+          }
+        })
+        ws.send(JSON.stringify({ type: 'set_permission_mode', mode: 'auto' }))
+
+        const outcome = await Promise.race([
+          confirmation,
+          new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 1_000)),
+        ])
+
+        expect(outcome).toBe('confirmed')
+        expect(performance.now() - switchStartedAt).toBeLessThan(1_000)
+      } finally {
+        ws.close()
+        conversationService.stopSession(sessionId)
+      }
+    })
+  }, 10_000)
 
   it('should not persist or broadcast a rejected auto permission switch', async () => {
     await withMockPermissionModeBehavior('status-before-reject', async () => {

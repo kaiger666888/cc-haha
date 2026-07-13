@@ -105,6 +105,8 @@ type SessionProcess = {
   permissionMode: string
   sdkToken: string
   sdkSocket: { send(data: string): void } | null
+  sdkAttached: Promise<void>
+  resolveSdkAttached: (() => void) | null
   pendingOutbound: string[]
   startupPending: boolean
   startupExitCode: number | null
@@ -346,6 +348,10 @@ export class ConversationService {
       )
     }
 
+    let resolveSdkAttached: (() => void) | null = null
+    const sdkAttached = new Promise<void>((resolve) => {
+      resolveSdkAttached = resolve
+    })
     const session: SessionProcess = {
       proc,
       outputCallbacks: [],
@@ -353,6 +359,8 @@ export class ConversationService {
       permissionMode: options?.permissionMode || 'default',
       sdkToken: this.getSdkTokenFromUrl(sdkUrl),
       sdkSocket: null,
+      sdkAttached,
+      resolveSdkAttached,
       pendingOutbound: [],
       startupPending: true,
       startupExitCode: null,
@@ -377,12 +385,15 @@ export class ConversationService {
     })
 
     const STARTUP_GRACE_MS = 3000
+    let startupGraceTimer: ReturnType<typeof setTimeout> | undefined
     const earlyExitCode = await Promise.race([
       proc.exited,
+      session.sdkAttached.then(() => null),
       new Promise<null>((resolve) =>
-        setTimeout(() => resolve(null), STARTUP_GRACE_MS),
+        startupGraceTimer = setTimeout(() => resolve(null), STARTUP_GRACE_MS),
       ),
     ])
+    if (startupGraceTimer) clearTimeout(startupGraceTimer)
 
     const startupExitCode = earlyExitCode ?? session.startupExitCode
     if (startupExitCode !== null) {
@@ -753,6 +764,8 @@ export class ConversationService {
     if (!session) return false
 
     session.sdkSocket = socket
+    session.resolveSdkAttached?.()
+    session.resolveSdkAttached = null
     while (session.pendingOutbound.length > 0) {
       const line = session.pendingOutbound.shift()
       if (line) {
@@ -762,9 +775,12 @@ export class ConversationService {
     return true
   }
 
-  detachSdkConnection(sessionId: string): void {
+  detachSdkConnection(
+    sessionId: string,
+    socket: { send(data: string): void },
+  ): void {
     const session = this.sessions.get(sessionId)
-    if (session) {
+    if (session?.sdkSocket === socket) {
       session.sdkSocket = null
     }
   }
