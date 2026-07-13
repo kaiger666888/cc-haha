@@ -247,6 +247,22 @@ export function tokenCountWithEstimation(messages: readonly Message[]): number {
     const message = messages[i]
     const usage = message ? getTokenUsage(message) : undefined
     if (message && usage) {
+      // Zero-token usage (e.g. from Anthropic-compatible gateways like the
+      // local GLM/Higress proxy that omit usage fields) is a placeholder for
+      // "stale or unavailable", not a real count. Skip it — same as
+      // getCurrentUsage below — so we keep walking back for a real usage
+      // record, and fall through to the full rough estimate if none exists.
+      // Without this, an all-zero usage short-circuits here and returns 0,
+      // which makes the context-usage percentage read 0%.
+      if (
+        (usage.input_tokens ?? 0) === 0 &&
+        (usage.output_tokens ?? 0) === 0 &&
+        (usage.cache_creation_input_tokens ?? 0) === 0 &&
+        (usage.cache_read_input_tokens ?? 0) === 0
+      ) {
+        i--
+        continue
+      }
       // Walk back past any earlier sibling records split from the same API
       // response (same message.id) so interleaved tool_results between them
       // are included in the estimation slice.

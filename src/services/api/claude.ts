@@ -2370,7 +2370,12 @@ async function* queryModel(
                     });
                     throw new Error("Content block is not a thinking block");
                   }
-                  contentBlock.thinking += delta.thinking;
+                  // GLM/Higress and other Anthropic-compatible gateways emit
+                  // thinking_delta with a `text` field instead of the standard
+                  // `thinking` field. Fall back to `text` so thinking content
+                  // accumulates correctly instead of concatenating the literal
+                  // string "undefined".
+                  contentBlock.thinking += delta.thinking ?? delta.text ?? '';
                   break;
               }
             }

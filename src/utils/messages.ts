@@ -3190,7 +3190,12 @@ export function handleMessageFromStream(
           return
         }
         case 'thinking_delta':
-          onUpdateLength(message.event.delta.thinking)
+          // GLM/Higress and other Anthropic-compatible gateways may emit
+          // thinking_delta with a `text` field instead of the standard
+          // `thinking` field. Normalize here so the REPL's onUpdateLength
+          // never receives undefined (which would throw TypeError on
+          // .length and kill the whole stream generator — see REPL.tsx:2646).
+          onUpdateLength(message.event.delta.thinking ?? message.event.delta.text ?? '')
           return
         case 'signature_delta':
           // Signatures are cryptographic authentication strings, not model
