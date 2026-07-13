@@ -88,6 +88,10 @@ vi.mock('../components/settings/ChatGPTOfficialLogin', () => ({
   ChatGPTOfficialLogin: () => <div data-testid="chatgpt-official-login" />,
 }))
 
+vi.mock('../components/settings/GrokOfficialLogin', () => ({
+  GrokOfficialLogin: () => <div data-testid="grok-official-login" />,
+}))
+
 vi.mock('../pages/AdapterSettings', () => ({
   AdapterSettings: () => <div>Adapter Settings Mock</div>,
 }))
@@ -1571,7 +1575,7 @@ describe('Settings > Providers tab', () => {
         notes: '',
       },
     ]
-    providerStoreState.providerOrder = ['provider-1', 'claude-official', 'openai-official']
+    providerStoreState.providerOrder = ['provider-1', 'claude-official', 'openai-official', 'grok-official']
     providerStoreState.activeId = null
     providerStoreState.hasLoadedProviders = true
   })
@@ -1620,6 +1624,18 @@ describe('Settings > Providers tab', () => {
     expect(screen.queryByTestId('claude-official-login')).not.toBeInTheDocument()
   })
 
+  it('shows Grok Official as the active built-in provider', () => {
+    providerStoreState.providers = []
+    providerStoreState.activeId = 'grok-official'
+
+    render(<Settings />)
+
+    const provider = screen.getByTestId('grok-official-provider')
+    expect(within(provider).getByText('Grok Official')).toBeInTheDocument()
+    expect(within(provider).getByText('Default')).toBeInTheDocument()
+    expect(screen.getByTestId('grok-official-login')).toBeInTheDocument()
+  })
+
   it('renders saved and official providers in the stored sortable order', () => {
     providerStoreState.providerOrder = ['provider-1', 'openai-official', 'claude-official']
 
@@ -1631,6 +1647,7 @@ describe('Settings > Providers tab', () => {
       'provider-provider-1',
       'openai-official-provider',
       'claude-official-provider',
+      'grok-official-provider',
     ])
   })
 
@@ -1645,6 +1662,7 @@ describe('Settings > Providers tab', () => {
       'provider-provider-1',
       'claude-official-provider',
       'openai-official-provider',
+      'grok-official-provider',
     ])
   })
 

@@ -52,11 +52,13 @@ import { MemorySettings } from './MemorySettings'
 import { useUIStore } from '../stores/uiStore'
 import { ClaudeOfficialLogin } from '../components/settings/ClaudeOfficialLogin'
 import { ChatGPTOfficialLogin } from '../components/settings/ChatGPTOfficialLogin'
+import { GrokOfficialLogin } from '../components/settings/GrokOfficialLogin'
 import {
   BUILT_IN_PROVIDER_IDS,
   CLAUDE_OFFICIAL_PROVIDER_ID,
   OPENAI_OFFICIAL_PROVIDER_ID,
 } from '../constants/openaiOfficialProvider'
+import { GROK_OFFICIAL_PROVIDER_ID } from '../constants/grokOfficialProvider'
 import { useUpdateStore } from '../stores/updateStore'
 import { getBaseUrl } from '../api/client'
 import { formatBytes } from '../lib/formatBytes'
@@ -279,6 +281,7 @@ function TabButton({ icon, label, active, onClick }: { icon: string; label: stri
 type ProviderListItem =
   | { id: typeof CLAUDE_OFFICIAL_PROVIDER_ID; kind: 'claude-official' }
   | { id: typeof OPENAI_OFFICIAL_PROVIDER_ID; kind: 'openai-official' }
+  | { id: typeof GROK_OFFICIAL_PROVIDER_ID; kind: 'grok-official' }
   | { id: string; kind: 'saved'; provider: SavedProvider }
 
 function defaultProviderOrder(providers: SavedProvider[]): string[] {
@@ -325,6 +328,7 @@ function buildProviderListItems(
   const items = new Map<string, ProviderListItem>([
     [CLAUDE_OFFICIAL_PROVIDER_ID, { id: CLAUDE_OFFICIAL_PROVIDER_ID, kind: 'claude-official' }],
     [OPENAI_OFFICIAL_PROVIDER_ID, { id: OPENAI_OFFICIAL_PROVIDER_ID, kind: 'openai-official' }],
+    [GROK_OFFICIAL_PROVIDER_ID, { id: GROK_OFFICIAL_PROVIDER_ID, kind: 'grok-official' }],
     ...savedItems,
   ])
 
@@ -339,6 +343,8 @@ function providerItemTestId(item: ProviderListItem): string {
       return 'claude-official-provider'
     case 'openai-official':
       return 'openai-official-provider'
+    case 'grok-official':
+      return 'grok-official-provider'
     case 'saved':
       return `provider-${item.provider.id}`
   }
@@ -444,6 +450,7 @@ function ProviderSettings() {
 
   const isClaudeOfficialActive = hasLoadedProviders && activeId === null
   const isOpenAIOfficialActive = hasLoadedProviders && activeId === OPENAI_OFFICIAL_PROVIDER_ID
+  const isGrokOfficialActive = hasLoadedProviders && activeId === GROK_OFFICIAL_PROVIDER_ID
 
   return (
     <div className="max-w-2xl">
@@ -507,6 +514,28 @@ function ProviderSettings() {
                     details={isOpenAIOfficialActive ? (
                       <div className="border-t border-[var(--color-border-separator)] px-4 pb-4 pt-3">
                         <ChatGPTOfficialLogin />
+                      </div>
+                    ) : null}
+                  />
+                )
+              }
+
+              if (item.kind === 'grok-official') {
+                return (
+                  <SortableProviderCard
+                    key={item.id}
+                    item={item}
+                    isActive={isGrokOfficialActive}
+                    dragLabel={t('settings.providers.dragToReorder')}
+                    onActivate={!isGrokOfficialActive ? () => handleActivate(GROK_OFFICIAL_PROVIDER_ID) : undefined}
+                    title={t('settings.providers.grokOfficialName')}
+                    subtitle={t('settings.providers.grokOfficialDesc')}
+                    badges={isGrokOfficialActive ? (
+                      <span className="rounded border border-[var(--color-brand)]/18 bg-[var(--color-brand)]/12 px-1.5 py-0.5 text-[10px] font-bold leading-none text-[var(--color-brand)]">{t('settings.providers.default')}</span>
+                    ) : null}
+                    details={isGrokOfficialActive ? (
+                      <div className="border-t border-[var(--color-border-separator)] px-4 pb-4 pt-3">
+                        <GrokOfficialLogin />
                       </div>
                     ) : null}
                   />

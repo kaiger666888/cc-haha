@@ -570,7 +570,7 @@ describe('EmptySession', () => {
         toolSearchEnabled: true,
       }],
       activeId: 'provider-minimax',
-      providerOrder: ['provider-minimax', 'claude-official', 'openai-official'],
+      providerOrder: ['provider-minimax', 'claude-official', 'openai-official', 'grok-official'],
       hasLoadedProviders: true,
     })
 

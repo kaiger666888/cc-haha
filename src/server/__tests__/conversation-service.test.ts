@@ -750,6 +750,25 @@ describe('ConversationService', () => {
     expect(env.ANTHROPIC_BASE_URL).toBeUndefined()
   })
 
+  test('buildChildEnv injects isolated Grok Official runtime env for session-scoped selection', async () => {
+    const service = new ConversationService() as any
+    const env = (await service.buildChildEnv('/tmp', undefined, {
+      providerId: 'grok-official',
+      model: 'grok-4.5',
+    })) as Record<string, string>
+
+    expect(env.CC_HAHA_GROK_OAUTH_PROVIDER).toBe('1')
+    expect(env.GROK_OAUTH_FILE).toBe(path.join(tmpDir, 'cc-haha', 'grok-oauth.json'))
+    expect(env.ANTHROPIC_MODEL).toBe('grok-4.5')
+    expect(env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST).toBe('1')
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined()
+    expect(env.CC_HAHA_OPENAI_OAUTH_PROVIDER).toBeUndefined()
+    expect(env.OPENAI_CODEX_OAUTH_FILE).toBeUndefined()
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined()
+  })
+
   test('buildChildEnv passes OpenAI-native effort without leaking Claude effort state', async () => {
     const originalEffort = process.env.CC_HAHA_OPENAI_REASONING_EFFORT
     process.env.CC_HAHA_OPENAI_REASONING_EFFORT = 'stale-parent-effort'

@@ -16,6 +16,10 @@ import {
   isOpenAIOfficialProviderId,
 } from './openaiOfficialProvider.js'
 import {
+  GROK_OAUTH_FILE_ENV_KEY,
+  GROK_OAUTH_PROVIDER_ENV_KEY,
+} from './grokOfficialProvider.js'
+import {
   OPENAI_CODEX_REASONING_EFFORT_ENV_KEY,
   isOpenAIReasoningEffort,
 } from '../../services/openaiAuth/models.js'
@@ -1167,6 +1171,8 @@ export class ConversationService {
       OPENAI_OAUTH_PROVIDER_ENV_KEY,
       OPENAI_CODEX_OAUTH_FILE_ENV_KEY,
       OPENAI_CODEX_REASONING_EFFORT_ENV_KEY,
+      GROK_OAUTH_PROVIDER_ENV_KEY,
+      GROK_OAUTH_FILE_ENV_KEY,
     ] as const
 
     const cleanEnv = await getProcessEnvWithTerminalShellEnvironment()
@@ -1414,6 +1420,8 @@ export class ConversationService {
         'CLAUDE_CODE_MODEL_CONTEXT_WINDOWS',
         OPENAI_OAUTH_PROVIDER_ENV_KEY,
         OPENAI_CODEX_OAUTH_FILE_ENV_KEY,
+        GROK_OAUTH_PROVIDER_ENV_KEY,
+        GROK_OAUTH_FILE_ENV_KEY,
       ].some((key) => typeof env[key] === 'string' && env[key]!.trim().length > 0)
     } catch {
       return false
@@ -1445,6 +1453,9 @@ export class ConversationService {
       const parsed = JSON.parse(raw) as { env?: Record<string, string> }
       const env = parsed.env ?? {}
       if (env[OPENAI_OAUTH_PROVIDER_ENV_KEY] === '1') {
+        return false
+      }
+      if (env[GROK_OAUTH_PROVIDER_ENV_KEY] === '1') {
         return false
       }
       const hasProviderEnv = [

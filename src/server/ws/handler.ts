@@ -24,12 +24,16 @@ import { sessionService } from '../services/sessionService.js'
 import { SettingsService } from '../services/settingsService.js'
 import { ProviderService } from '../services/providerService.js'
 import { isOpenAIOfficialProviderId } from '../services/openaiOfficialProvider.js'
+import { isGrokOfficialProviderId } from '../services/grokOfficialProvider.js'
 import { getOpenAICodexModelCatalog } from '../../services/openaiAuth/modelCatalog.js'
 import {
   OPENAI_DEFAULT_MAIN_MODEL,
   getOpenAIModelCatalogEntry,
   isOpenAIReasoningEffort,
 } from '../../services/openaiAuth/models.js'
+import { GROK_DEFAULT_MAIN_MODEL } from '../../services/grokAuth/models.js'
+import { getGrokModelCatalog } from '../../services/grokAuth/modelCatalog.js'
+import { hahaGrokOAuthService } from '../services/hahaGrokOAuthService.js'
 import { diagnosticsService } from '../services/diagnosticsService.js'
 import {
   buildConversationTitleInput,
@@ -822,7 +826,7 @@ async function handleSetRuntimeConfig(
   message: Extract<ClientMessage, { type: 'set_runtime_config' }>
 ) {
   const { sessionId } = ws.data
-  const modelId = typeof message.modelId === 'string' ? message.modelId.trim() : ''
+  let modelId = typeof message.modelId === 'string' ? message.modelId.trim() : ''
   if (!modelId) {
     sendMessage(ws, {
       type: 'error',
@@ -830,6 +834,9 @@ async function handleSetRuntimeConfig(
       code: 'RUNTIME_CONFIG_INVALID',
     })
     return
+  }
+  if (isGrokOfficialProviderId(message.providerId)) {
+    modelId = (await getGrokReasoningEfforts(modelId)).modelId
   }
   const effortLevel =
     typeof message.effortLevel === 'string' ? message.effortLevel.trim() : undefined
@@ -2715,11 +2722,35 @@ async function getDefaultOpenAIReasoningEffort(modelId: string): Promise<string>
   return getOpenAIModelCatalogEntry(modelId, catalog)?.defaultReasoningEffort ?? 'medium'
 }
 
+async function getGrokReasoningEfforts(modelId: string): Promise<{
+  modelId: string
+  defaultEffort?: string
+  supportedEfforts: string[]
+}> {
+  const tokens = await hahaGrokOAuthService.ensureFreshTokens()
+  const catalog = await getGrokModelCatalog({
+    ...(tokens?.accessToken ? { accessToken: tokens.accessToken } : {}),
+    accountKey: tokens?.email ?? (tokens ? 'authenticated-default' : 'logged-out'),
+  })
+  const model = catalog.find((entry) => entry.value === modelId)
+    ?? catalog.find((entry) => entry.value === GROK_DEFAULT_MAIN_MODEL)
+    ?? catalog[0]
+  return {
+    modelId: model?.value ?? GROK_DEFAULT_MAIN_MODEL,
+    ...(model?.reasoningEffort ? { defaultEffort: model.reasoningEffort } : {}),
+    supportedEfforts: model?.reasoningEfforts ?? [],
+  }
+}
+
 async function isRuntimeEffortSupported(
   providerId: string | null | undefined,
   modelId: string,
   effort: string,
 ): Promise<boolean> {
+  if (isGrokOfficialProviderId(providerId)) {
+    const { supportedEfforts } = await getGrokReasoningEfforts(modelId)
+    return supportedEfforts.includes(effort)
+  }
   if (!isOpenAIOfficialProviderId(providerId)) {
     return VALID_CLAUDE_EFFORT_LEVELS.has(effort)
   }
@@ -2738,6 +2769,7 @@ function isKnownRuntimeProviderId(
 ): boolean {
   return (
     isOpenAIOfficialProviderId(providerId) ||
+    isGrokOfficialProviderId(providerId) ||
     providers.some((provider) => provider.id === providerId)
   )
 }
@@ -2782,11 +2814,16 @@ async function getRuntimeSettings(sessionId?: string): Promise<RuntimeSettings> 
       userSettings,
       runtimeOverride.providerId,
     )
-    const effort = runtimeOverride.effort ?? (
-      isOpenAIOfficialProviderId(runtimeOverride.providerId)
-        ? await getDefaultOpenAIReasoningEffort(runtimeOverride.modelId)
-        : undefined
-    )
+    let effort = runtimeOverride.effort
+    if (isOpenAIOfficialProviderId(runtimeOverride.providerId)) {
+      effort = effort ?? await getDefaultOpenAIReasoningEffort(runtimeOverride.modelId)
+    } else if (isGrokOfficialProviderId(runtimeOverride.providerId)) {
+      const grokEffort = await getGrokReasoningEfforts(runtimeOverride.modelId)
+      runtimeOverride.modelId = grokEffort.modelId
+      effort = effort && grokEffort.supportedEfforts.includes(effort)
+        ? effort
+        : grokEffort.defaultEffort
+    }
 
     return {
       permissionMode: sessionPermissionMode ?? await settingsService.getPermissionMode().catch(() => undefined),
@@ -2850,6 +2887,9 @@ async function getDefaultRuntimeSettings(): Promise<RuntimeSettings> {
     if (isOpenAIOfficialProviderId(resolvedActiveId)) {
       model = model || OPENAI_DEFAULT_MAIN_MODEL
       effort = await getDefaultOpenAIReasoningEffort(model)
+    } else if (isGrokOfficialProviderId(resolvedActiveId)) {
+      model = model || GROK_DEFAULT_MAIN_MODEL
+      effort = (await getGrokReasoningEfforts(model)).defaultEffort
     }
   } else {
     // No provider — pass model normally

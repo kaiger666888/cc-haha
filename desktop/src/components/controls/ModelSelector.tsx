@@ -18,6 +18,11 @@ import { isDesktopRuntime } from '../../lib/desktopRuntime'
 import { resolveDefaultRuntimeSelection } from '../../lib/runtimeSelection'
 import { useHahaOAuthStore } from '../../stores/hahaOAuthStore'
 import { useHahaOpenAIOAuthStore } from '../../stores/hahaOpenAIOAuthStore'
+import { useHahaGrokOAuthStore } from '../../stores/hahaGrokOAuthStore'
+import {
+  GROK_OFFICIAL_MODELS,
+  GROK_OFFICIAL_PROVIDER_ID,
+} from '../../constants/grokOfficialProvider'
 import { MobileBottomSheet } from '../shared/MobileBottomSheet'
 import { ReasoningEffortPopover } from './ReasoningEffortPopover'
 
@@ -108,9 +113,11 @@ function buildProviderChoices(
   availableModels: ModelInfo[],
   officialName: string,
   openAIOfficialName: string,
+  grokOfficialName: string,
   labels: Record<'main' | 'haiku' | 'sonnet' | 'opus', string>,
   claudeOfficialLoggedIn: boolean,
   openAIOfficialLoggedIn: boolean,
+  grokOfficialLoggedIn: boolean,
 ): ProviderChoice[] {
   const claudeOfficialModels = activeId === null && availableModels.length > 0
     ? availableModels
@@ -118,6 +125,9 @@ function buildProviderChoices(
   const openAIOfficialModels = activeId === OPENAI_OFFICIAL_PROVIDER_ID && availableModels.length > 0
     ? availableModels
     : OPENAI_OFFICIAL_MODELS
+  const grokOfficialModels = activeId === GROK_OFFICIAL_PROVIDER_ID && availableModels.length > 0
+    ? availableModels
+    : GROK_OFFICIAL_MODELS
 
   const choices: ProviderChoice[] = []
 
@@ -130,6 +140,14 @@ function buildProviderChoices(
       openAIOfficialModels,
       activeId === OPENAI_OFFICIAL_PROVIDER_ID,
       openAIOfficialName,
+    ))
+  }
+  if (grokOfficialLoggedIn) {
+    choices.push(officialChoices(
+      GROK_OFFICIAL_PROVIDER_ID,
+      grokOfficialModels,
+      activeId === GROK_OFFICIAL_PROVIDER_ID,
+      grokOfficialName,
     ))
   }
 
@@ -173,6 +191,8 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, Props>(function Mod
   const fetchClaudeOAuthStatus = useHahaOAuthStore((s) => s.fetchStatus)
   const openAIOAuthStatus = useHahaOpenAIOAuthStore((s) => s.status)
   const fetchOpenAIOAuthStatus = useHahaOpenAIOAuthStore((s) => s.fetchStatus)
+  const grokOAuthStatus = useHahaGrokOAuthStore((s) => s.status)
+  const fetchGrokOAuthStatus = useHahaGrokOAuthStore((s) => s.fetchStatus)
   const runtimeSelection = useSessionRuntimeStore((state) =>
     runtimeKey ? state.selections[runtimeKey] : undefined,
   )
@@ -217,7 +237,8 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, Props>(function Mod
     requestedOAuthStatusRef.current = true
     void fetchClaudeOAuthStatus()
     void fetchOpenAIOAuthStatus()
-  }, [fetchClaudeOAuthStatus, fetchOpenAIOAuthStatus, isRuntimeScoped, open])
+    void fetchGrokOAuthStatus()
+  }, [fetchClaudeOAuthStatus, fetchGrokOAuthStatus, fetchOpenAIOAuthStatus, isRuntimeScoped, open])
 
   const openSelector = useCallback(() => {
     if (!disabled) {
@@ -318,11 +339,13 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, Props>(function Mod
       availableModels,
       t('settings.providers.officialName'),
       t('settings.providers.openaiOfficialName'),
+      t('settings.providers.grokOfficialName'),
       roleLabels,
       claudeOAuthStatus?.loggedIn === true,
       openAIOAuthStatus?.loggedIn === true,
+      grokOAuthStatus?.loggedIn === true,
     ),
-    [activeId, availableModels, providers, roleLabels, t, claudeOAuthStatus, openAIOAuthStatus],
+    [activeId, availableModels, providers, roleLabels, t, claudeOAuthStatus, grokOAuthStatus, openAIOAuthStatus],
   )
 
   const selectedModel = isControlled
@@ -358,13 +381,15 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, Props>(function Mod
   const buttonProviderLabel = isRuntimeScoped
     ? selectedProviderChoice?.providerName ?? activeProviderName ?? t('settings.providers.officialName')
     : null
-  const selectedRuntimeEffort = activeRuntimeSelection?.effortLevel
-    ?? selectedRuntimeModel?.defaultReasoningEffort
-    ?? effortLevel
   const supportedRuntimeEfforts = selectedRuntimeModel?.supportedReasoningEfforts
-  const runtimeEffortOptions = supportedRuntimeEfforts?.length
-    ? EFFORT_OPTIONS.filter((option) => supportedRuntimeEfforts.includes(option.value))
-    : EFFORT_OPTIONS.filter((option) => option.value !== 'xhigh')
+  const selectedRuntimeEffort = supportedRuntimeEfforts?.length === 0
+    ? undefined
+    : activeRuntimeSelection?.effortLevel
+      ?? selectedRuntimeModel?.defaultReasoningEffort
+      ?? effortLevel
+  const runtimeEffortOptions = supportedRuntimeEfforts === undefined
+    ? EFFORT_OPTIONS.filter((option) => option.value !== 'xhigh')
+    : EFFORT_OPTIONS.filter((option) => supportedRuntimeEfforts.includes(option.value))
 
   const handleRuntimeSelect = (selection: RuntimeSelection) => {
     onRuntimeSelectionChange?.(selection)
@@ -420,11 +445,13 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, Props>(function Mod
                         onClick={() => {
                           const supportedEfforts = model.supportedReasoningEfforts
                           const explicitEffort = activeRuntimeSelection?.effortLevel
-                          const nextEffort = supportedEfforts?.length
-                            ? explicitEffort && supportedEfforts.includes(explicitEffort)
-                              ? explicitEffort
-                              : model.defaultReasoningEffort ?? supportedEfforts[0]
-                            : explicitEffort ?? effortLevel
+                          const nextEffort = supportedEfforts === undefined
+                            ? explicitEffort ?? effortLevel
+                            : supportedEfforts.length
+                              ? explicitEffort && supportedEfforts.includes(explicitEffort)
+                                ? explicitEffort
+                                : model.defaultReasoningEffort ?? supportedEfforts[0]
+                              : undefined
                           handleRuntimeSelect({
                             providerId: choice.providerId,
                             modelId: model.id,

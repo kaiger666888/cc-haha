@@ -201,6 +201,12 @@ export class DoctorService {
         'user',
         path.join(this.configDir, 'cc-haha', 'openai-oauth.json'),
       ),
+      this.jsonTarget(
+        'grok-oauth',
+        'Grok OAuth tokens',
+        'user',
+        path.join(this.configDir, 'cc-haha', 'grok-oauth.json'),
+      ),
     ]
 
     if (this.projectRoot) {
