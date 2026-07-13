@@ -295,8 +295,8 @@ describe('ModelSelector', () => {
 
     render(<ModelSelector runtimeKey="session-1" />)
 
-    await clickByRole(/provider-main/i)
-    await clickByRole(/^High$/)
+    await clickByRole('Effort: Max')
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Effort' }), { key: 'ArrowLeft' })
 
     expect(useSessionRuntimeStore.getState().selections['session-1']).toEqual({
       providerId: 'provider-a',
@@ -420,6 +420,17 @@ describe('ModelSelector', () => {
 
     render(<ModelSelector runtimeKey="session-openai-effort" />)
 
+    expect(screen.getByRole('button', { name: 'GPT-5.6-Sol, ChatGPT Official' })).toHaveAttribute(
+      'title',
+      'ChatGPT Official · GPT-5.6-Sol',
+    )
+    expect(screen.queryByTestId('model-provider-badge')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Effort: Max' })).toBeInTheDocument()
+    await clickByRole('Effort: Max')
+    expect(screen.getByRole('slider', { name: 'Effort' })).toHaveAttribute('aria-valuemax', '4')
+    expect(screen.getAllByTestId('reasoning-effort-stop')).toHaveLength(5)
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Effort' }), { key: 'Escape' })
+
     await clickByRole(/GPT-5\.6-Sol/i)
     await clickByRole(/GPT-5\.5/)
 
@@ -429,9 +440,11 @@ describe('ModelSelector', () => {
       effortLevel: 'medium',
     })
 
-    await clickByRole(/GPT-5\.5/i)
-    expect(screen.queryByRole('button', { name: /^Max$/ })).not.toBeInTheDocument()
-    await clickByRole(/^X-High$/)
+    expect(screen.getByRole('button', { name: 'Effort: Medium' })).toBeInTheDocument()
+    await clickByRole('Effort: Medium')
+    expect(screen.getByRole('slider', { name: 'Effort' })).toHaveAttribute('aria-valuemax', '3')
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Effort' }), { key: 'End' })
+    expect(screen.getByRole('slider', { name: 'Effort' })).toHaveAttribute('aria-valuetext', 'X-High')
 
     expect(useSessionRuntimeStore.getState().selections['session-openai-effort']).toEqual({
       providerId: OPENAI_OFFICIAL_PROVIDER_ID,

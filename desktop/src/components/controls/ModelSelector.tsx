@@ -19,6 +19,7 @@ import { resolveDefaultRuntimeSelection } from '../../lib/runtimeSelection'
 import { useHahaOAuthStore } from '../../stores/hahaOAuthStore'
 import { useHahaOpenAIOAuthStore } from '../../stores/hahaOpenAIOAuthStore'
 import { MobileBottomSheet } from '../shared/MobileBottomSheet'
+import { ReasoningEffortPopover } from './ReasoningEffortPopover'
 
 type ProviderChoice = {
   providerId: string | null
@@ -176,8 +177,10 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, Props>(function Mod
     runtimeKey ? state.selections[runtimeKey] : undefined,
   )
   const [open, setOpen] = useState(false)
+  const [effortOpen, setEffortOpen] = useState(false)
   const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const effortButtonRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const requestedProvidersRef = useRef(false)
   const requestedOAuthStatusRef = useRef(false)
@@ -189,6 +192,13 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, Props>(function Mod
     { value: 'xhigh', label: t('settings.general.effort.xhigh') },
     { value: 'max', label: t('settings.general.effort.max') },
   ]
+  const effortLabels: Record<ReasoningEffortLevel, string> = {
+    low: t('settings.general.effort.low'),
+    medium: t('settings.general.effort.medium'),
+    high: t('settings.general.effort.high'),
+    xhigh: t('settings.general.effort.xhigh'),
+    max: t('settings.general.effort.max'),
+  }
 
   const isControlled = value !== undefined
   const isRuntimeScoped =
@@ -210,7 +220,10 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, Props>(function Mod
   }, [fetchClaudeOAuthStatus, fetchOpenAIOAuthStatus, isRuntimeScoped, open])
 
   const openSelector = useCallback(() => {
-    if (!disabled) setOpen(true)
+    if (!disabled) {
+      setEffortOpen(false)
+      setOpen(true)
+    }
   }, [disabled])
 
   useImperativeHandle(selectorRef, () => ({
@@ -503,35 +516,6 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, Props>(function Mod
         )}
       </div>
 
-      {canEditRuntimeEffort && (
-        <div className="border-t border-[var(--color-border)] p-3">
-          <div className="mb-2 px-1 text-[10px] font-bold uppercase tracking-widest text-[var(--color-outline)]">
-            {t('model.effort')}
-          </div>
-          <div className={`grid gap-1.5 ${runtimeEffortOptions.length === 5 ? 'grid-cols-5' : 'grid-cols-4'}`}>
-            {runtimeEffortOptions.map((opt) => {
-              const isSelected = opt.value === selectedRuntimeEffort
-              return (
-                <button
-                  key={opt.value}
-                  onClick={() => {
-                    handleRuntimeEffortSelect(opt.value)
-                  }}
-                  className={`
-                    rounded-lg py-2 text-center text-xs font-semibold transition-colors
-                    ${isSelected
-                      ? 'bg-[var(--color-brand)] text-[var(--color-on-primary)]'
-                      : 'bg-[var(--color-surface-container-high)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
-                    }
-                  `}
-                >
-                  {opt.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
     </>
   )
 
@@ -568,27 +552,63 @@ export const ModelSelector = forwardRef<ModelSelectorHandle, Props>(function Mod
     : null
 
   return (
-    <div ref={ref} className="relative min-w-0 shrink-0">
-      <button
-        onClick={() => !disabled && setOpen(!open)}
-        disabled={disabled}
-        className={`flex items-center gap-2 rounded-full bg-[var(--color-surface-container-low)] text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 ${
-          compact ? 'max-w-[112px] px-2.5 py-1.5' : 'max-w-[280px] px-3 py-1.5'
-        }`}
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+    <div className="relative min-w-0 shrink-0">
+      <div ref={ref} className={`flex min-w-0 items-stretch rounded-full bg-[var(--color-surface-container-low)] transition-colors hover:bg-[var(--color-surface-hover)] ${disabled ? 'opacity-50' : ''}`}>
+        <button
+          onClick={() => {
+            if (disabled) return
+            setEffortOpen(false)
+            setOpen(!open)
+          }}
+          disabled={disabled}
+          aria-label={buttonProviderLabel ? `${buttonModelLabel}, ${buttonProviderLabel}` : undefined}
+          title={buttonProviderLabel ? `${buttonProviderLabel} · ${buttonModelLabel}` : undefined}
+          className={`flex min-w-0 items-center gap-2 rounded-l-full text-xs font-medium text-[var(--color-text-secondary)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] disabled:cursor-not-allowed ${
+            compact ? 'max-w-[112px] py-1.5 pl-2.5 pr-1' : 'max-w-[220px] py-1.5 pl-3 pr-1'
+          }`}
+        >
           <span className={`${compact ? 'text-xs' : 'text-sm'} min-w-0 flex-1 truncate font-semibold text-[var(--color-text-primary)]`}>
             {buttonModelLabel}
           </span>
-          {!compact && buttonProviderLabel && (
+          {!canEditRuntimeEffort && !compact && buttonProviderLabel && (
             <span className="max-w-[108px] flex-shrink-0 truncate text-[11px] text-[var(--color-text-tertiary)]">
               {buttonProviderLabel}
             </span>
           )}
-        </div>
-        <span className="material-symbols-outlined flex-shrink-0 text-[12px]">expand_more</span>
-      </button>
+          <span className="material-symbols-outlined flex-shrink-0 text-[12px]">expand_more</span>
+        </button>
+
+        {canEditRuntimeEffort && selectedRuntimeEffort && runtimeEffortOptions.length > 0 && (
+          <button
+            ref={effortButtonRef}
+            type="button"
+            disabled={disabled}
+            aria-label={`${t('model.effort')}: ${effortLabels[selectedRuntimeEffort]}`}
+            aria-expanded={effortOpen}
+            onClick={() => {
+              if (disabled) return
+              setOpen(false)
+              setEffortOpen(!effortOpen)
+            }}
+            className={`rounded-r-full pr-3 text-[var(--color-text-tertiary)] outline-none transition-colors hover:text-[var(--color-text-secondary)] focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] disabled:cursor-not-allowed ${compact ? 'pl-1 text-[10px]' : 'pl-1.5 text-xs'}`}
+          >
+            {effortLabels[selectedRuntimeEffort]}
+          </button>
+        )}
+      </div>
       {dropdown}
+      {canEditRuntimeEffort && selectedRuntimeEffort && (
+        <ReasoningEffortPopover
+          open={effortOpen}
+          anchorRef={effortButtonRef}
+          options={runtimeEffortOptions.map((option) => option.value)}
+          value={selectedRuntimeEffort}
+          labels={effortLabels}
+          ariaLabel={t('model.effort')}
+          onChange={handleRuntimeEffortSelect}
+          onClose={() => setEffortOpen(false)}
+        />
+      )}
     </div>
   )
 })
