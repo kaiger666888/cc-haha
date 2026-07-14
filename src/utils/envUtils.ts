@@ -2,15 +2,28 @@ import memoize from 'lodash-es/memoize.js'
 import { homedir } from 'os'
 import { join } from 'path'
 
-// Memoized: 150+ callers, many on hot paths. Keyed off CLAUDE_CONFIG_DIR so
-// tests that change the env var get a fresh value without explicit cache.clear.
+// Memoized: 150+ callers, many on hot paths. Keyed off the resolved config
+// dir so tests that change env vars get a fresh value without explicit
+// cache.clear.
+//
+// Priority:
+// 1. CC_HAHA_CONFIG_DIR — cc-haha native override, takes precedence so
+//    cc-haha can run alongside an existing Claude Code install without
+//    sharing ~/.claude state (sessions, memory, skills, settings).
+// 2. CLAUDE_CONFIG_DIR — legacy compat for users who already set this.
+// 3. ~/.claude — unchanged default, preserves backward compatibility.
 export const getClaudeConfigHomeDir = memoize(
   (): string => {
-    return (
-      process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')
-    ).normalize('NFC')
+    const dir =
+      process.env.CC_HAHA_CONFIG_DIR ??
+      process.env.CLAUDE_CONFIG_DIR ??
+      join(homedir(), '.claude')
+    return dir.normalize('NFC')
   },
-  () => process.env.CLAUDE_CONFIG_DIR,
+  () =>
+    process.env.CC_HAHA_CONFIG_DIR ??
+    process.env.CLAUDE_CONFIG_DIR ??
+    '__default__',
 )
 
 export function getTeamsDir(): string {

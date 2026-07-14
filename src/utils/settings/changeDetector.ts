@@ -4,6 +4,7 @@ import * as platformPath from 'path'
 import { getIsRemoteMode } from '../../bootstrap/state.js'
 import { registerCleanup } from '../cleanupRegistry.js'
 import { logForDebugging } from '../debug.js'
+import { isEnvTruthy } from '../envUtils.js'
 import { errorMessage } from '../errors.js'
 import {
   type ConfigChangeSource,
@@ -84,6 +85,15 @@ let testOverrides: {
 export async function initialize(): Promise<void> {
   if (getIsRemoteMode()) return
   if (initialized || disposed) return
+
+  // cc-haha: 默认禁用 settings 文件热加载（chokidar 文件监听 + MDM 轮询）。
+  // settings.json 修改后不立即生效，需重启进程才重新读取。
+  // 显式设 CC_HAHA_ENABLE_SETTINGS_WATCH=1 可恢复原热加载行为。
+  if (!isEnvTruthy(process.env.CC_HAHA_ENABLE_SETTINGS_WATCH)) {
+    initialized = true
+    return
+  }
+
   initialized = true
 
   // Start MDM poll for registry/plist changes (independent of filesystem watching)
@@ -445,6 +455,11 @@ function fanOut(source: SettingSource): void {
  * that don't involve file system changes.
  */
 export function notifyChange(source: SettingSource): void {
+  // cc-haha: 默认禁用程序内部触发的设置变更通知，保证 settings 只在重启时重新加载。
+  // 显式设 CC_HAHA_ENABLE_SETTINGS_WATCH=1 可恢复原行为。
+  if (!isEnvTruthy(process.env.CC_HAHA_ENABLE_SETTINGS_WATCH)) {
+    return
+  }
   logForDebugging(`Programmatic settings change notification for ${source}`)
   fanOut(source)
 }
