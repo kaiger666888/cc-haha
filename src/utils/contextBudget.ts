@@ -1,4 +1,5 @@
 import { getAPIProvider } from './model/providers.js'
+import { logForDebugging } from './debug.js'
 
 export type ProviderUsageTrust = 'high' | 'low'
 
@@ -126,7 +127,16 @@ export function calculateContextBudget(
     }
   }
 
-  const providerUsageTokens = getUsageTokenTotal(args.currentUsage)
+  // [GLM/Higress 兼容] 低信任 provider（非 Anthropic 官方）返回的 input_tokens
+  // 已包含 cache_read 命中的部分，若再叠加 cache_read_input_tokens 会重复计数，
+  // 导致上下文占用虚高（实测 39% 显示为 68%）。高信任路径（Anthropic 官方）
+  // 三个字段互斥，仍按原语义相加。
+  const providerUsageTokens =
+    args.usageTrust === 'low'
+      ? args.currentUsage.input_tokens +
+        args.currentUsage.cache_creation_input_tokens +
+        (args.currentUsage.output_tokens ?? 0)
+      : getUsageTokenTotal(args.currentUsage)
 
   if (
     shouldIgnoreLowTrustUsage({
@@ -151,13 +161,29 @@ export function calculateContextBudget(
     args.contextWindow,
   )
 
-  return {
+  const result: ContextBudget = {
     usedTokens,
     source:
       providerUsageTokens >= args.estimatedTokens ? 'provider_usage' : 'estimate',
     providerUsageTokens,
     estimatedTokens: args.estimatedTokens,
   }
+
+  // [context-debug] 诊断上下文占用虚高：记录预算计算的全部输入与输出
+  logForDebugging(
+    `[context-budget] source=${result.source} usedTokens=${usedTokens} ` +
+      `estimatedTokens=${args.estimatedTokens} ` +
+      `providerUsageTokens=${providerUsageTokens} ` +
+      `usage.input=${args.currentUsage?.input_tokens ?? 'null'} ` +
+      `usage.cache_creation=${args.currentUsage?.cache_creation_input_tokens ?? 'null'} ` +
+      `usage.cache_read=${args.currentUsage?.cache_read_input_tokens ?? 'null'} ` +
+      `usage.output=${args.currentUsage?.output_tokens ?? 'null'} ` +
+      `contextWindow=${args.contextWindow} ` +
+      `usageTrust=${args.usageTrust} hasMediaInput=${args.hasMediaInput}` +
+      (result.ignoredUsageReason ? ` ignoredReason=${result.ignoredUsageReason}` : ''),
+    { level: 'debug' },
+  )
+  return result
 }
 
 export function calculateContextPercentagesFromTokens(

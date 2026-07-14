@@ -54,6 +54,19 @@ function buildStatusLineCommandInput(permissionMode: PermissionMode, exceeds200k
     hasMediaInput: hasMediaInput(messages)
   });
   const contextPercentages = calculateContextPercentagesFromTokens(contextTokens, contextWindowSize);
+  // [context-debug] 诊断上下文占用虚高：记录 StatusLine 计算的中间值
+  logForDebugging(
+    `[statusline-context] used%=${contextPercentages.used ?? 'null'} ` +
+      `contextWindowSize=${contextWindowSize} ` +
+      `estimatedContextTokens=${estimatedContextTokens} ` +
+      `contextTokens=${contextTokens} ` +
+      `usage.input=${currentUsage?.input_tokens ?? 'null'} ` +
+      `usage.cache_creation=${currentUsage?.cache_creation_input_tokens ?? 'null'} ` +
+      `usage.cache_read=${currentUsage?.cache_read_input_tokens ?? 'null'} ` +
+      `usage.output=${currentUsage?.output_tokens ?? 'null'} ` +
+      `runtimeModel=${runtimeModel}`,
+    { level: 'debug' },
+  );
   const sessionId = getSessionId();
   const sessionName = getCurrentSessionTitle(sessionId);
   const rawUtil = getRawUtilization();
